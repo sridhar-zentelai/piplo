@@ -1,0 +1,51 @@
+# Secrets — GROQ_API_KEY lives here. This block must exist before a key is
+# ever written to .env.
+.env
+.env.*
+!.env.example
+
+# Runtime data — everything you have ever dictated. Never commit this.
+history/
+
+# Dependencies
+node_modules
+
+# Frontend build output
+dist
+dist-ssr
+*.local
+
+# Rust / Tauri
+src-tauri/target
+src-tauri/gen/schemas
+src-tauri/WixTools
+
+# Installers & release binaries
+release-artifacts
+*.exe
+*.msi
+*.dmg
+*.AppImage
+*.deb
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+bun-debug.log*
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# Editor & OS
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+Thumbs.db
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
