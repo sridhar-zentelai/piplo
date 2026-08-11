@@ -198,7 +198,8 @@ Known and accepted, not oversights:
 - **No duration cap** on recording. Groq's limit is 25 MB (~13 min at 16 kHz
   mono); a long dictation will fail with an API error rather than a clean
   message.
-- **No history search or pagination.** The list is read whole and rendered whole.
-  This becomes a problem in the thousands of entries, not the hundreds.
+- **No history search.** The list is paginated at 20 rows but still read whole
+  into memory, so the *read* becomes the cost in the thousands of entries, not the
+  hundreds. The fix at that point is a windowed read, not a database.
 - **Unicode `SendInput` can be dropped** by games and some DirectInput apps. The
   fallback would be clipboard + `Ctrl+V`; the seam for it is `insert.rs`.

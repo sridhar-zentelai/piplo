@@ -33,6 +33,8 @@ linking would be an abstraction with a single call site.
 | Component | Responsibility |
 | --------- | -------------- |
 | `DesktopWindow.tsx` | Shell, page state, sidebar + content split |
+| `HomeHero.tsx` | Greeting, the live shortcut, status, three stat tiles |
+| `Pagination.tsx` | Page cursor for the history list |
 | `Sidebar.tsx` | Brand mark, two nav entries, version at the bottom |
 | `HomePage.tsx` | The list, the count, clear-all |
 | `HistoryRow.tsx` | One entry |
@@ -44,6 +46,24 @@ nonsense.
 
 Dark only. There is no theme switch — see
 [CLAUDE.md](../CLAUDE.md#ui-principles).
+
+---
+
+## The hero
+
+Above the list: the app mark, a greeting with the version, the **current**
+shortcut rendered as `Kbd` chips read from settings, and a live status dot.
+
+The status comes from the same `status` event the widget listens to, so it says
+Recording or Working during a dictation rather than guessing.
+
+Three tiles — dictations, total words, day streak — all derived from
+`history.jsonl` on render. Nothing is tracked, stored or sent anywhere; this is
+arithmetic over a local file, not the analytics on the
+[do-not list](../CLAUDE.md#do-not-implement).
+
+The day streak counts consecutive local days back from today, and tolerates a gap
+*today* so the number does not reset the moment midnight passes.
 
 ---
 
@@ -93,12 +113,21 @@ One destructive action, in the header, behind a confirm. Truncates the file via
 **Use a shadcn dialog, never `window.confirm`.** A native modal inside the
 webview blocks the whole window and looks nothing like the app.
 
+### Pagination
+
+20 rows a page, with a `from–to of total` readout and prev/next. The scroller
+returns to the top on a page change — arriving halfway down the next page reads
+as a broken jump. The control only appears above one page's worth.
+
+The page cursor is clamped whenever the row count shrinks, so clearing history
+or a re-fetch that returned fewer rows cannot leave it pointing past the end.
+
 ### Scale
 
-The file is read whole and the list rendered whole — no pagination, no search,
-no virtualisation. At a few hundred entries this is instant. At several thousand
-it will not be, and the fix at that point is virtualisation, not a database.
-Recorded as a [deliberate gap](MVP_PLAN.md#deliberate-gaps).
+The file is still read whole and the whole list held in memory; pagination only
+bounds what is *rendered*. At a few hundred entries this is instant. At several
+thousand the read itself becomes the cost, and the fix at that point is a windowed
+read, not a database. No search.
 
 ---
 

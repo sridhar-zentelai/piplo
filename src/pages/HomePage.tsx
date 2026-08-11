@@ -1,7 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Trash2 } from "lucide-react";
 import HistoryRow from "@/components/HistoryRow";
+import HomeHero from "@/components/HomeHero";
 import MicIcon from "@/components/MicIcon";
+import Pagination from "@/components/Pagination";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -14,10 +16,33 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { useHistory } from "@/hooks/useHistory";
-import { clearHistory, getSettings } from "@/lib/commands";
+import { clearHistory } from "@/lib/commands";
+
+const PAGE_SIZE = 20;
 
 export default function HomePage() {
   const { entries, loading, refresh } = useHistory();
+  const [page, setPage] = useState(1);
+  const scroller = useRef<HTMLDivElement>(null);
+
+  const pageCount = Math.max(1, Math.ceil(entries.length / PAGE_SIZE));
+
+  // Clearing history, or a re-fetch that shrank the list, can leave the cursor
+  // past the end.
+  useEffect(() => {
+    setPage((current) => Math.min(current, pageCount));
+  }, [pageCount]);
+
+  const visible = useMemo(
+    () => entries.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
+    [entries, page],
+  );
+
+  function goTo(next: number) {
+    setPage(next);
+    // Page two starting halfway down the list reads as a broken jump.
+    scroller.current?.scrollTo({ top: 0 });
+  }
 
   async function onClear() {
     try {
@@ -29,11 +54,13 @@ export default function HomePage() {
   }
 
   return (
-    <>
-      <header className="flex items-center justify-between border-b border-border px-6 py-4">
-        <h1 className="font-display text-lg font-semibold tracking-tight">
+    <div ref={scroller} className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+      <HomeHero entries={entries} />
+
+      <header className="flex items-center justify-between px-6 pb-2 pt-5">
+        <h2 className="font-display text-sm font-semibold uppercase tracking-widest text-muted-foreground">
           History
-        </h1>
+        </h2>
 
         <div className="flex items-center gap-3">
           <span className="font-mono text-xs text-muted-foreground">
@@ -76,46 +103,44 @@ export default function HomePage() {
         </div>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+      <div className="flex-1 px-6 pb-4">
         {loading ? null : entries.length === 0 ? (
           <EmptyState />
         ) : (
           <ul className="flex flex-col gap-2">
-            {entries.map((entry) => (
+            {visible.map((entry) => (
               <HistoryRow key={entry.id} entry={entry} />
             ))}
           </ul>
         )}
       </div>
-    </>
+
+      {entries.length > PAGE_SIZE && (
+        <div className="sticky bottom-0 bg-[#141414]">
+          <Pagination
+            page={page}
+            pageCount={pageCount}
+            from={(page - 1) * PAGE_SIZE + 1}
+            to={Math.min(page * PAGE_SIZE, entries.length)}
+            total={entries.length}
+            onChange={goTo}
+          />
+        </div>
+      )}
+    </div>
   );
 }
 
-/** The first thing a new user sees, so it says how to start. */
 function EmptyState() {
-  const [shortcut, setShortcut] = useState<string | null>(null);
-
-  useEffect(() => {
-    void getSettings()
-      .then((settings) => setShortcut(settings.shortcut))
-      .catch(() => setShortcut(null));
-  }, []);
-
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
+    <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
       <MicIcon className="size-8 text-muted-foreground/40" />
       <p className="font-sans text-sm text-muted-foreground">
         No dictations yet
       </p>
-      {shortcut && (
-        <p className="font-sans text-xs text-muted-foreground/70">
-          Hold{" "}
-          <kbd className="rounded border border-border bg-white/[0.06] px-1.5 py-0.5 font-mono text-[11px] text-foreground">
-            {shortcut}
-          </kbd>{" "}
-          and speak
-        </p>
-      )}
+      <p className="font-sans text-xs text-muted-foreground/70">
+        Hold your shortcut and speak — the text lands wherever your caret is.
+      </p>
     </div>
   );
 }
