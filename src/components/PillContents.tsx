@@ -1,17 +1,28 @@
 import { useEffect, useState } from "react";
 import MicIcon from "@/components/MicIcon";
 import Waveform from "@/components/Waveform";
+import { cancelDictation, finishDictation, startDictation } from "@/lib/commands";
 import type { Status } from "@/store/appStore";
 
 export default function PillContents({ status }: { status: Status }) {
   if (status.kind === "idle") {
-    return <MicIcon className="size-5 text-muted-foreground" />;
+    return (
+      <button
+        type="button"
+        onClick={() => void startDictation()}
+        aria-label="Dictate"
+        className="flex size-full items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <MicIcon className="size-5" />
+      </button>
+    );
   }
 
   return (
     <div className="flex w-full items-center gap-3 px-4">
-      {/* ✕ stays live as an abort through the whole flow. Wired up in 2.6. */}
-      <Glyph label="Cancel">
+      {/* ✕ stays live as an abort through the whole flow, both network calls
+          included. */}
+      <Glyph label="Cancel" onClick={() => void cancelDictation()}>
         <path d="M5 5l10 10M15 5L5 15" />
       </Glyph>
 
@@ -19,8 +30,8 @@ export default function PillContents({ status }: { status: Status }) {
         <>
           <Waveform />
           <Elapsed />
-          {/* ✓ is hidden while transcribing — nothing left to accept. */}
-          <Glyph label="Accept">
+          {/* ✓ is hidden while transcribing — there is nothing left to accept. */}
+          <Glyph label="Accept" onClick={() => void finishDictation()}>
             <path d="M4 11l4 4 8-9" />
           </Glyph>
         </>
@@ -39,24 +50,32 @@ export default function PillContents({ status }: { status: Status }) {
 
 function Glyph({
   label,
+  onClick,
   children,
 }: {
   label: string;
+  onClick: () => void;
   children: React.ReactNode;
 }) {
   return (
-    <svg
-      viewBox="0 0 20 20"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.75}
-      strokeLinecap="round"
-      className="size-4 shrink-0 text-muted-foreground"
-      role="img"
+    <button
+      type="button"
+      onClick={onClick}
       aria-label={label}
+      className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
     >
-      {children}
-    </svg>
+      <svg
+        viewBox="0 0 20 20"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.75}
+        strokeLinecap="round"
+        className="size-4"
+        aria-hidden
+      >
+        {children}
+      </svg>
+    </button>
   );
 }
 

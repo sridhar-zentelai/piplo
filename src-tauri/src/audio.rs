@@ -14,6 +14,10 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, Sample, SampleFormat, SizedSample, StreamConfig};
 use tauri::{AppHandle, Emitter};
 
+/// What Whisper wants. WASAPI shared mode hands back the device mixer format,
+/// which is usually 48 kHz — an exact 3:1 decimation.
+pub const TARGET_RATE: u32 = 16_000;
+
 /// ~30 Hz, which is what the waveform is built for.
 const LEVEL_INTERVAL: Duration = Duration::from_millis(33);
 
@@ -29,6 +33,7 @@ pub enum AudioError {
     Build(String),
     Play(String),
     ThreadDied,
+    Encode(String),
 }
 
 impl fmt::Display for AudioError {
@@ -37,6 +42,7 @@ impl fmt::Display for AudioError {
         match self {
             Self::NoDevice => write!(f, "No microphone"),
             Self::UnsupportedFormat(format) => write!(f, "Unsupported mic format ({format:?})"),
+            Self::Encode(_) => write!(f, "Could not encode audio"),
             Self::Config(_) | Self::Build(_) | Self::Play(_) | Self::ThreadDied => {
                 write!(f, "Microphone unavailable")
             }
@@ -49,7 +55,10 @@ impl AudioError {
     /// has to stay short enough to fit the pill.
     pub fn detail(&self) -> &str {
         match self {
-            Self::Config(detail) | Self::Build(detail) | Self::Play(detail) => detail,
+            Self::Config(detail)
+            | Self::Build(detail)
+            | Self::Play(detail)
+            | Self::Encode(detail) => detail,
             Self::NoDevice => "no default input device",
             Self::UnsupportedFormat(_) => "sample format not handled",
             Self::ThreadDied => "capture thread exited before reporting",
@@ -221,4 +230,65 @@ where
 /// bars. The square root opens up the quiet end.
 fn meter(rms: f32) -> f32 {
     ((rms - NOISE_FLOOR).max(0.0).sqrt() * 2.4).clamp(0.0, 1.0)
+}
+
+/// Decimate to 16 kHz with a box average.
+///
+/// Dropping every third sample instead would alias, which measurably hurts
+/// transcription on sibilants. The box filter is a few lines and removes the
+/// problem — and the 3× smaller upload is latency the user feels on every
+/// dictation.
+pub fn to_16k(samples: &[f32], from_rate: u32) -> Vec<f32> {
+    // Upsampling would invent detail Whisper cannot use. No mixer format is below
+    // 16 kHz in practice, so pass it through rather than pretending.
+    if samples.is_empty() || from_rate <= TARGET_RATE {
+        return samples.to_vec();
+    }
+
+    let ratio = from_rate as f64 / TARGET_RATE as f64;
+    let out_len = (samples.len() as f64 / ratio).floor() as usize;
+    let mut out = Vec::with_capacity(out_len);
+
+    for i in 0..out_len {
+        let start = (i as f64 * ratio).floor() as usize;
+        let end = (((i + 1) as f64 * ratio).floor() as usize).min(samples.len());
+        let window = &samples[start..end.max(start + 1)];
+        out.push(window.iter().sum::<f32>() / window.len() as f32);
+    }
+
+    out
+}
+
+/// 16-bit PCM WAV in memory. No temp file: nothing to clean up, and nothing left
+/// behind on a crash.
+pub fn encode_wav(samples: &[f32]) -> Result<Vec<u8>, AudioError> {
+    let spec = hound::WavSpec {
+        channels: 1,
+        sample_rate: TARGET_RATE,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+
+    let mut cursor = std::io::Cursor::new(Vec::new());
+
+    {
+        let mut writer = hound::WavWriter::new(&mut cursor, spec)
+            .map_err(|err| AudioError::Encode(err.to_string()))?;
+
+        for &sample in samples {
+            // Scale by MAX, not MIN: i16 has one more negative step, and using it
+            // would wrap the loudest peaks into positive values as a click.
+            let scaled = (sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
+
+            writer
+                .write_sample(scaled)
+                .map_err(|err| AudioError::Encode(err.to_string()))?;
+        }
+
+        writer
+            .finalize()
+            .map_err(|err| AudioError::Encode(err.to_string()))?;
+    }
+
+    Ok(cursor.into_inner())
 }

@@ -88,27 +88,27 @@ Each step below works with the next one stubbed, so each is visible on its own.
   `level` event at ~30 Hz. Replace the sine wave.
   **See:** the waveform tracks your actual voice and goes flat when you stop.
 
-- [ ] **2.2 — A WAV that plays**
+- [x] **2.2 — A WAV that plays**
   Downsample to 16 kHz, encode with `hound`, write it to disk temporarily.
   **See:** open the file in a player and hear yourself clearly.
   Drop the disk write once it sounds right.
 
-- [ ] **2.3 — Groq returns words**
+- [x] **2.3 — Groq returns words**
   `groq.rs`: the multipart POST, typed errors, no `unwrap`.
   **See:** speak, and your sentence prints in the terminal.
 
-- [ ] **2.4 — Words reach the caret**
+- [x] **2.4 — Words reach the caret**
   `insert.rs`: wait for modifiers to be released, then Unicode `SendInput`.
   **See:** Notepad — hold, speak, release, text appears.
   **Then:** release `Space` but keep `Ctrl` down for a second. Nothing must
   happen until `Ctrl` is up. Menus opening means the wait is broken.
 
-- [ ] **2.5 — History file**
+- [x] **2.5 — History file**
   `history.rs`: one JSONL line per dictation, in `history/`.
   **See:** `history/history.jsonl` gains a plausible line per dictation, and
   `git status` stays clean.
 
-- [ ] **2.6 — The state machine**
+- [x] **2.6 — The state machine**
   `session.rs`: the only module that knows the order. Mic click starts, ✓ ends,
   ✕ discards. A tap under ~300 ms makes no API call.
   **See:** all six of these by hand — key hold, mic click + ✓, mic click + ✕

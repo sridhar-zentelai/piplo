@@ -39,7 +39,8 @@ reqwest = { version = "0.12", default-features = false, features = [
 # GROQ_API_KEY, read only here — never handed to the webview.
 dotenvy = "0.15"
 # History timestamps.
-time = { version = "0.3", features = ["formatting", "macros"] }
+# `parsing` so 4.2 can read the timestamps back out of the JSONL.
+time = { version = "0.3", features = ["formatting", "parsing", "macros"] }
 # History entry ids.
 uuid = { version = "1", features = ["v4"] }
 

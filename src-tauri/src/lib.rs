@@ -1,4 +1,7 @@
 mod audio;
+mod groq;
+mod history;
+mod insert;
 mod platform;
 mod session;
 mod shortcut;
@@ -9,13 +12,23 @@ use tauri::{Manager, WindowEvent};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // GROQ_API_KEY. Absent in a packaged build without a .env, which is fine —
-    // the error surfaces on the first dictation, not at startup.
-    let _ = dotenvy::dotenv();
+    load_env();
+
+    // Read once, here. The key never reaches the webview. A missing key is a
+    // message on the pill, not a crash.
+    let api_key = match std::env::var("GROQ_API_KEY") {
+        Ok(key) if !key.trim().is_empty() => Some(key),
+        _ => {
+            eprintln!("piplo: GROQ_API_KEY is not set — dictation will show an error");
+            None
+        }
+    };
 
     tauri::Builder::default()
-        .manage(shortcut::KeyDown::default())
+        .manage(session::ApiKey(api_key))
         .manage(session::Active::default())
+        .manage(session::Generation::default())
+        .manage(shortcut::KeyDown::default())
         .plugin(shortcut::plugin())
         // Position only, and only for `home`. The default flags include VISIBLE,
         // which would restore `home` and `menu` as shown even though both are
@@ -27,7 +40,12 @@ pub fn run() {
                 .with_denylist(&["widget", "menu"])
                 .build(),
         )
-        .invoke_handler(tauri::generate_handler![widget::widget_set_active])
+        .invoke_handler(tauri::generate_handler![
+            widget::widget_set_active,
+            session::start_dictation,
+            session::finish_dictation,
+            session::cancel_dictation,
+        ])
         .setup(|app| {
             // After the windows exist — the flags need a real HWND.
             for label in [widget::LABEL, "menu"] {
@@ -66,4 +84,13 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+fn load_env() {
+    // dotenv() walks up from the working directory, which finds the repo .env in
+    // dev but not from an installed binary. Fall back to the path baked at build
+    // time before giving up on the process environment.
+    if dotenvy::dotenv().is_err() {
+        let _ = dotenvy::from_path(history::repo_root().join(".env"));
+    }
 }

@@ -23,13 +23,13 @@ pub fn plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
                 if app.state::<KeyDown>().0.swap(true, Ordering::SeqCst) {
                     return; // auto-repeat
                 }
-                session::start(app);
+                session::start(app, session::Trigger::Shortcut);
             }
             ShortcutState::Released => {
                 if !app.state::<KeyDown>().0.swap(false, Ordering::SeqCst) {
                     return;
                 }
-                session::stop(app);
+                session::finish(app, session::Trigger::Shortcut);
             }
         })
         .build()
