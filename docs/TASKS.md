@@ -18,7 +18,7 @@ Work top to bottom. Don't start a task until the one above it is ticked.
 
 ## M0 — Scaffold
 
-- [ ] **0.1 — The app opens**
+- [x] **0.1 — The app opens**
   `bun create tauri-app`, Tailwind v4 via `@tailwindcss/vite`, shadcn init
   (dark only), the three fonts, and the release profile from
   [MVP_PLAN.md](MVP_PLAN.md#m0--scaffold). Identifier `com.codea.piplo`.

@@ -1,0 +1,60 @@
+[package]
+name = "piplo"
+version = "0.1.0"
+description = "Hold a shortcut, speak, get clean text in the app you were already using."
+authors = ["codea"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "piplo_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-window-state = "2"
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Microphone capture. Cannot live in the webview: `getUserMedia` needs a secure
+# context and the packaged app serves http://tauri.localhost.
+cpal = "0.15"
+# WAV encoding for the 16 kHz mono upload.
+hound = "3.5"
+# Groq HTTP. `native-tls` so we link Schannel instead of shipping a cert bundle.
+reqwest = { version = "0.12", default-features = false, features = [
+  "native-tls",
+  "json",
+  "multipart",
+] }
+# GROQ_API_KEY, read only here — never handed to the webview.
+dotenvy = "0.15"
+# History timestamps.
+time = { version = "0.3", features = ["formatting", "macros"] }
+# History entry ids.
+uuid = { version = "1", features = ["v4"] }
+
+[target.'cfg(windows)'.dependencies]
+# SendInput for typing, and the window flags that stop the widget taking focus.
+windows = { version = "0.62", features = [
+  "Win32_Foundation",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_WindowsAndMessaging",
+] }
+
+# Keeps the shipped binary small.
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
