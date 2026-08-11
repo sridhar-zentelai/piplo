@@ -38,7 +38,7 @@ Work top to bottom. Don't start a task until the one above it is ticked.
   `widget`, `menu`, `home` in `tauri.conf.json` per
   [CLAUDE.md](../CLAUDE.md#windows). Widget visible, other two hidden.
   `main.tsx` picks its root component from the window label.
-  **See:** a 96×96 transparent square floating above everything, nothing in the
+  **See:** a 56×56 transparent square floating above everything, nothing in the
   taskbar, nothing in Alt-Tab.
 
 - [ ] **1.2 — The widget never takes focus** ← *the load-bearing one*
