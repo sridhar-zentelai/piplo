@@ -11,6 +11,11 @@
 /* Dark only. There is no `:root` light block and no `.light` class anywhere —
    see CLAUDE.md. shadcn primitives read these names. */
 :root {
+  /* Paints the WebView2 scrollbars and form controls dark. `prefers-color-scheme`
+     is only a media query and does not reach them — without this the history
+     list gets a white scrollbar however dark the window theme is. */
+  color-scheme: dark;
+
   --radius: 0.75rem;
 
   --background: rgba(20, 20, 20, 0.75);
@@ -95,5 +100,11 @@
   body {
     user-select: none;
     -webkit-user-select: none;
+  }
+
+  /* user-select does not cover images: without this the brand mark can be
+     dragged out of the window as a file, which no native app does. */
+  img {
+    -webkit-user-drag: none;
   }
 }

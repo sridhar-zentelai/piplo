@@ -1,4 +1,5 @@
 mod audio;
+mod credentials;
 mod grammar;
 mod groq;
 mod history;
@@ -17,18 +18,16 @@ use tauri::{Manager, WindowEvent};
 pub fn run() {
     load_env();
 
-    // Read once, here. The key never reaches the webview. A missing key is a
-    // message on the pill, not a crash.
-    let api_key = match std::env::var("GROQ_API_KEY") {
+    // The environment key, read once. A key saved from Settings is loaded in
+    // `setup`, where the config dir is reachable. Neither ever reaches the
+    // webview, and a missing key is a message on the pill, not a crash.
+    let env_key = match std::env::var("GROQ_API_KEY") {
         Ok(key) if !key.trim().is_empty() => Some(key),
-        _ => {
-            eprintln!("piplo: GROQ_API_KEY is not set — dictation will show an error");
-            None
-        }
+        _ => None,
     };
 
     tauri::Builder::default()
-        .manage(session::ApiKey(api_key))
+        .manage(credentials::Env(env_key))
         .manage(session::Active::default())
         .manage(session::Generation::default())
         .manage(shortcut::KeyDown::default())
@@ -52,6 +51,9 @@ pub fn run() {
             session::cancel_dictation,
             settings::get_settings,
             settings::set_settings,
+            credentials::get_api_key_status,
+            credentials::set_api_key,
+            credentials::clear_api_key,
             history::get_history,
             history::clear_history,
             tray::open_home,
@@ -68,6 +70,12 @@ pub fn run() {
             let shortcut_accelerator = saved.shortcut.clone();
             let widget_visible = saved.widget_visible;
             app.manage(settings::Store::new(saved));
+
+            app.manage(credentials::Store::new(credentials::load(handle)));
+
+            if credentials::current(handle).is_none() {
+                eprintln!("piplo: no Groq API key — set one in Settings, or via GROQ_API_KEY");
+            }
 
             // After the windows exist — the flags need a real HWND.
             for label in [widget::LABEL, menu::LABEL] {

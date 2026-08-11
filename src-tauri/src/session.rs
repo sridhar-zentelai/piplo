@@ -38,9 +38,6 @@ pub enum Trigger {
     Pointer,
 }
 
-/// `GROQ_API_KEY`, read once at startup and never sent to the webview.
-pub struct ApiKey(pub Option<String>);
-
 /// Bumped on every start and cancel. Captured before each await and compared
 /// after: without it, cancel-then-immediately-record types the previous take.
 #[derive(Default)]
@@ -174,10 +171,12 @@ pub fn cancel(app: &AppHandle) {
 }
 
 async fn deliver(app: AppHandle, wav: Vec<u8>, generation: u64, seconds: f32) {
-    let key = app.state::<ApiKey>().0.clone();
+    // Read per dictation, not cached at startup, so a key saved in Settings
+    // applies to the very next take.
+    let key = crate::credentials::current(&app);
 
     let Some(key) = key else {
-        eprintln!("piplo: GROQ_API_KEY is not set");
+        eprintln!("piplo: no Groq API key");
         fail(&app, "No API key".into());
         return;
     };

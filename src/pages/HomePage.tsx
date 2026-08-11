@@ -18,7 +18,7 @@ import {
 import { useHistory } from "@/hooks/useHistory";
 import { clearHistory } from "@/lib/commands";
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 10;
 
 export default function HomePage() {
   const { entries, loading, refresh } = useHistory();
@@ -57,7 +57,7 @@ export default function HomePage() {
     <div ref={scroller} className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       <HomeHero entries={entries} />
 
-      <header className="flex items-center justify-between px-6 pb-2 pt-5">
+      <header className="mx-auto flex w-full max-w-3xl items-center justify-between px-6 pb-2 pt-5">
         <h2 className="font-display text-sm font-semibold uppercase tracking-widest text-muted-foreground">
           History
         </h2>
@@ -103,7 +103,7 @@ export default function HomePage() {
         </div>
       </header>
 
-      <div className="flex-1 px-6 pb-4">
+      <div className="mx-auto w-full max-w-3xl flex-1 px-6 pb-4">
         {loading ? null : entries.length === 0 ? (
           <EmptyState />
         ) : (
@@ -116,7 +116,7 @@ export default function HomePage() {
       </div>
 
       {entries.length > PAGE_SIZE && (
-        <div className="sticky bottom-0 bg-[#141414]">
+        <div className="sticky bottom-0 mx-auto w-full max-w-3xl bg-[#141414]">
           <Pagination
             page={page}
             pageCount={pageCount}

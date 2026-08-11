@@ -23,6 +23,33 @@ export interface Settings {
   widgetVisible: boolean;
 }
 
+/**
+ * What the webview is allowed to know about the Groq key.
+ *
+ * Deliberately not the key. It travels one way — in via `setApiKey`, never
+ * back out — so the webview can show whether one is configured and which one,
+ * without ever holding the secret. `hint` is the last four characters only.
+ */
+export interface ApiKeyStatus {
+  configured: boolean;
+  hint: string | null;
+  /** `env` wins over a saved key and cannot be edited from the UI. */
+  source: "env" | "settings" | "none";
+}
+
+export function getApiKeyStatus(): Promise<ApiKeyStatus> {
+  return invoke("get_api_key_status");
+}
+
+/** Rejects with a message when the key is empty or the write fails. */
+export function setApiKey(key: string): Promise<ApiKeyStatus> {
+  return invoke("set_api_key", { key });
+}
+
+export function clearApiKey(): Promise<ApiKeyStatus> {
+  return invoke("clear_api_key");
+}
+
 /** Widen the widget window for the pill, or narrow it back for the chip. */
 export function widgetSetActive(active: boolean): Promise<void> {
   return invoke("widget_set_active", { active });

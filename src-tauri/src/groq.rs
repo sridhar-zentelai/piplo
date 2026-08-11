@@ -8,6 +8,9 @@ use serde::Deserialize;
 const BASE_URL: &str = "https://api.groq.com";
 const MODEL: &str = "whisper-large-v3-turbo";
 
+/// ISO-639-1. Dictation is English-only; there is no language picker.
+const LANGUAGE: &str = "en";
+
 /// Generous: a long dictation is a large upload, and failing early would cost
 /// the user the whole take.
 const TIMEOUT: Duration = Duration::from_secs(60);
@@ -75,6 +78,11 @@ pub async fn transcribe(api_key: &str, wav: Vec<u8>) -> Result<Transcription, Gr
     let form = reqwest::multipart::Form::new()
         .part("file", part)
         .text("model", MODEL)
+        // Piplo is English-only for now. Left to auto-detect, Whisper reads a
+        // noisy or very short take as another language and types back a script
+        // the user cannot even correct — and the grammar step, which is told the
+        // text is English, then rejects it. Pinning also skips detection.
+        .text("language", LANGUAGE)
         .text("temperature", "0")
         .text("response_format", "verbose_json");
 

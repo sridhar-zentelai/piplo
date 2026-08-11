@@ -1,8 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle } from "lucide-react";
 import ShortcutRecorder from "@/components/ShortcutRecorder";
+import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { getSettings, setSettings, type Settings } from "@/lib/commands";
+import {
+  clearApiKey,
+  getApiKeyStatus,
+  getSettings,
+  setApiKey,
+  setSettings,
+  type ApiKeyStatus,
+  type Settings,
+} from "@/lib/commands";
 import { warningFor } from "@/lib/shortcuts";
 
 export default function SettingsPanel() {
@@ -76,7 +85,144 @@ export default function SettingsPanel() {
           }
         />
       </Row>
+
+      <ApiKeyRow />
     </div>
+  );
+}
+
+function ApiKeyRow() {
+  const [status, setStatus] = useState<ApiKeyStatus | null>(null);
+  /** Null unless the field is open, so a saved key leaves nothing in the DOM. */
+  const [draft, setDraft] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    void getApiKeyStatus()
+      .then(setStatus)
+      .catch((cause) => {
+        console.error("[piplo] could not read the API key status", cause);
+        setError("Not available in this build.");
+      });
+  }, []);
+
+  async function run(action: () => Promise<ApiKeyStatus>) {
+    setBusy(true);
+    setError(null);
+    try {
+      setStatus(await action());
+      setDraft(null);
+    } catch (cause) {
+      // Never the key itself, only whatever Rust chose to say.
+      setError(String(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const fromEnv = status?.source === "env";
+
+  return (
+    <Row
+      label="Groq API key"
+      hint="Used for transcription and grammar. Stored by Piplo and never shown again once saved."
+      warning={
+        fromEnv
+          ? "GROQ_API_KEY is set in the environment and takes priority. Remove it from .env to use a key saved here."
+          : null
+      }
+    >
+      <div className="flex w-[280px] flex-col items-end gap-2">
+        {draft === null ? (
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-xs text-muted-foreground">
+              {status === null
+                ? "…"
+                : status.configured
+                  ? `••••${status.hint ?? ""}`
+                  : "Not set"}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy || fromEnv || status === null}
+              onClick={() => {
+                setError(null);
+                setDraft("");
+              }}
+            >
+              {status?.configured ? "Change" : "Add"}
+            </Button>
+            {status?.configured && !fromEnv && (
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={busy}
+                onClick={() => void run(clearApiKey)}
+              >
+                Remove
+              </Button>
+            )}
+          </div>
+        ) : (
+          <>
+            <input
+              type="password"
+              value={draft}
+              autoFocus
+              spellCheck={false}
+              autoComplete="off"
+              placeholder="gsk_…"
+              aria-label="Groq API key"
+              disabled={busy}
+              onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && draft.trim() !== "") {
+                  void run(() => setApiKey(draft.trim()));
+                }
+                if (event.key === "Escape") {
+                  setDraft(null);
+                  setError(null);
+                }
+              }}
+              className="w-full rounded-lg border border-input bg-white/[0.04] px-2.5 py-1.5 font-mono text-xs text-foreground outline-none placeholder:text-muted-foreground/50 focus-visible:border-ring"
+            />
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={busy}
+                onClick={() => {
+                  setDraft(null);
+                  setError(null);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                // Trimmed: a pasted key usually arrives with a newline.
+                disabled={busy || draft.trim() === ""}
+                onClick={() => void run(() => setApiKey(draft.trim()))}
+              >
+                Save
+              </Button>
+            </div>
+          </>
+        )}
+
+        {draft !== null && draft.trim() !== "" && !draft.startsWith("gsk_") && (
+          <p className="text-right font-sans text-xs text-muted-foreground">
+            Groq keys normally start with <code className="font-mono">gsk_</code>.
+          </p>
+        )}
+
+        {error && (
+          <p className="text-right font-sans text-xs text-destructive">{error}</p>
+        )}
+      </div>
+    </Row>
   );
 }
 
