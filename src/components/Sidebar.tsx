@@ -42,7 +42,7 @@ export default function Sidebar({
       >
         {/* From public/, so the same file the tray and taskbar use. No tinted
             plate behind it — the mark carries its own outline. */}
-        <img src="/icon.png" alt="" className="size-7 shrink-0" />
+        {/* <img src="/icon.png" alt="" className="size-7 shrink-0" /> */}
         {!collapsed && (
           <span className="font-display text-sm font-semibold tracking-tight">
             Piplo

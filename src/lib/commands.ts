@@ -55,6 +55,21 @@ export function widgetSetActive(active: boolean): Promise<void> {
   return invoke("widget_set_active", { active });
 }
 
+/** Remember where the window is, so the moves below can be offsets from it. */
+export function widgetDragStart(): Promise<void> {
+  return invoke("widget_drag_start");
+}
+
+/** Logical pixels moved since `widgetDragStart`. */
+export function widgetDragTo(dx: number, dy: number): Promise<void> {
+  return invoke("widget_drag_to", { dx, dy });
+}
+
+/** Pull the widget back on screen and remember where it landed. */
+export function widgetDragEnd(): Promise<void> {
+  return invoke("widget_drag_end");
+}
+
 /** Start a session from the mouse. A key-up will not end it. */
 export function startDictation(): Promise<void> {
   return invoke("start_dictation");

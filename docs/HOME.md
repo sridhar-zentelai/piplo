@@ -1,11 +1,12 @@
 # Home Window
 
 The `home` window is the only conventional window in the app: decorated,
-resizable, 880×600, and **hidden on startup**. It exists to answer one question —
+resizable, 880×600, and **opened on launch**. It exists to answer one question —
 "what did I dictate?" — and to hold the three settings.
 
-Opened from the tray or the widget's right-click menu. Closing it hides it; the
-app keeps running in the tray.
+Also opened from the tray or the widget's right-click menu. Closing it hides it
+rather than quitting; the app keeps running in the tray, and the tray brings it
+back.
 
 ```
 ┌──────────────┬──────────────────────────────────────────────┐

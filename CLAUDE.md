@@ -160,9 +160,9 @@ Three windows, declared in `tauri.conf.json`.
 
 | Label | Size | Purpose |
 | ----- | ---- | ------- |
-| `widget` | 56×56, grows to the pill | Frameless, transparent, always on top, `skipTaskbar`, **never takes focus** |
+| `widget` | 40×40, grows to the pill | Frameless, transparent, always on top, `skipTaskbar`, **never takes focus** |
 | `menu` | ~212×180 | The right-click menu. Transparent, hidden until summoned |
-| `home` | 880×600 | Normal decorated window: history + settings. Hidden on startup |
+| `home` | 880×600 | Normal decorated window: history + settings. Opens on launch |
 
 The widget carries `WS_EX_NOACTIVATE` (set in `platform.rs`). This is load
 bearing: it is why showing the pill or clicking the mic never steals focus from

@@ -13,13 +13,13 @@ export default function PillContents({ status }: { status: Status }) {
         aria-label="Dictate"
         className="flex size-full items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
       >
-        <MicIcon className="size-5" />
+        <MicIcon className="size-4" />
       </button>
     );
   }
 
   return (
-    <div className="flex w-full items-center gap-3 px-4">
+    <div className="flex w-full items-center gap-2 px-3">
       {/* ✕ stays live as an abort through the whole flow, both network calls
           included. */}
       <Glyph label="Cancel" onClick={() => void cancelDictation()}>
@@ -70,7 +70,7 @@ function Glyph({
         stroke="currentColor"
         strokeWidth={1.75}
         strokeLinecap="round"
-        className="size-4"
+        className="size-3.5"
         aria-hidden
       >
         {children}
@@ -99,7 +99,7 @@ function Elapsed() {
 
 function Dots() {
   return (
-    <div className="flex flex-1 items-center justify-center gap-1.5">
+    <div className="flex flex-1 items-center justify-center gap-1">
       {[0, 1, 2].map((i) => (
         <span
           key={i}

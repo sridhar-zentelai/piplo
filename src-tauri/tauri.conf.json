@@ -15,8 +15,8 @@
         "label": "widget",
         "url": "index.html",
         "title": "Piplo",
-        "width": 56,
-        "height": 56,
+        "width": 40,
+        "height": 40,
         "decorations": false,
         "transparent": true,
         "alwaysOnTop": true,
@@ -55,7 +55,8 @@
         "minHeight": 400,
         "visible": false,
         "resizable": true,
-        "center": true
+        "center": true,
+        "backgroundColor": "#141414"
       }
     ],
     "security": {

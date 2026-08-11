@@ -1,8 +1,8 @@
 # The Floating Widget
 
-A small chip that sits bottom-centre of the screen and morphs into a recording
-pill while you dictate. It is the entire visible surface of Piplo most of the
-time.
+A small chip that starts bottom-centre of the screen, can be dragged anywhere,
+and morphs into a recording pill while you dictate. It is the entire visible
+surface of Piplo most of the time.
 
 ```
    idle              recording                transcribing
@@ -68,7 +68,26 @@ puts the chip behind the taskbar on the default Windows setup.
 Resizing to the pill keeps the centre fixed, so the widget grows outward in both
 directions instead of appearing to slide.
 
-The widget is not draggable. It has one home and stays there.
+That is only the **default** home. Press anywhere on the widget and drag, and it
+stays where it is dropped.
+
+The drop point is stored as the widget's **centre**, in physical screen
+coordinates, in `widget.json` beside `settings.json` — its own file, because it
+is the residue of a mouse gesture rather than a fourth setting. The centre so the
+pill still grows both ways from it; physical because the value is only ever
+compared against monitor rectangles, and a round trip through the scale factor of
+whichever monitor the window starts on drifts on a mixed-DPI desktop.
+
+Placement is always clamped into the work area, so a widget can never be dropped,
+restored, or resized somewhere the mouse cannot reach it. Individual moves are
+**not** clamped: clamping each one against the current monitor would trap the
+widget on it, because Windows only hands a window to the next monitor once it is
+already mostly there. The drop clamps instead.
+
+A `Moved` event that is not part of a drag — a resolution change, which reaches
+Tauri as nothing else — only pulls the widget back on screen. It does not
+re-home it, or a deliberate position would be undone by a monitor being
+unplugged.
 
 ---
 
@@ -131,8 +150,17 @@ session records how it was started and only the matching trigger can finish it.
 Without that, letting go of a key you happened to be holding kills a
 mouse-started take.
 
-`useDragOrClick` is **not** needed — the widget does not move, so a click is a
-click.
+Because the widget also drags, a press is only a click if it goes nowhere.
+`useWidgetDrag` waits for 4px of travel before it starts moving the window, and
+swallows the click that ends a drag — so the mic button under the pointer still
+works, and dragging by the mic does not start a dictation.
+
+Pointer capture is taken at that 4px mark and not at the press: capturing on the
+press retargets the click away from the button and swallows every one of them.
+
+The drag is driven by `screenX`/`screenY` deltas, not client ones — the window
+moves out from under the cursor as it goes, so a client-relative delta fights
+itself.
 
 ---
 

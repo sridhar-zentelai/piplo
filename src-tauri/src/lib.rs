@@ -32,12 +32,14 @@ pub fn run() {
         .manage(session::Generation::default())
         .manage(shortcut::KeyDown::default())
         .manage(menu::MenuOpen::default())
+        .manage(widget::Drag::default())
         .plugin(shortcut::plugin())
         .plugin(tauri_plugin_clipboard_manager::init())
         // Position only, and only for `home`. The default flags include VISIBLE,
         // which would restore `home` and `menu` as shown even though both are
-        // declared hidden; and the widget computes its own place, so a restored
-        // position would only fight it.
+        // declared hidden; and the widget keeps its own position file, which
+        // knows about work areas and the morph, so a restored position would
+        // only fight it.
         .plugin(
             tauri_plugin_window_state::Builder::default()
                 .with_state_flags(tauri_plugin_window_state::StateFlags::POSITION)
@@ -46,6 +48,9 @@ pub fn run() {
         )
         .invoke_handler(tauri::generate_handler![
             widget::widget_set_active,
+            widget::widget_drag_start,
+            widget::widget_drag_to,
+            widget::widget_drag_end,
             session::start_dictation,
             session::finish_dictation,
             session::cancel_dictation,
@@ -88,8 +93,12 @@ pub fn run() {
                 }
             }
 
+            // Before the widget is placed — where it was dropped last run beats
+            // the default bottom centre.
+            app.manage(widget::Placement::new(widget::load_anchor(handle)));
+
             if let Some(window) = app.get_webview_window(widget::LABEL) {
-                widget::position_bottom_centre(&window);
+                widget::place(&window);
             }
 
             if !widget_visible {
@@ -98,6 +107,12 @@ pub fn run() {
 
             shortcut::register_initial(handle, &shortcut_accelerator);
             tray::create(handle)?;
+
+            // Home opens on launch. `home` stays `"visible": false` in the
+            // config and is shown from here instead, so every path that puts it
+            // on screen goes through `show_home` — which also focuses it, and
+            // is the one window in Piplo allowed to take focus.
+            tray::show_home(handle);
 
             Ok(())
         })
@@ -111,7 +126,7 @@ pub fn run() {
             // reach Tauri as anything but the resulting `Moved`.
             WindowEvent::Moved(_) if window.label() == widget::LABEL => {
                 if let Some(widget) = window.get_webview_window(widget::LABEL) {
-                    widget::recentre_if_moved(&widget);
+                    widget::keep_on_screen(&widget);
                 }
             }
             _ => {}

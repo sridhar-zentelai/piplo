@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useAppStore } from "@/store/appStore";
 
-const BARS = 22;
+const BARS = 16;
 /** Without the decay the bars flicker between frames and read as noise. */
 const DECAY = 0.86;
 /** So the pill never looks broken in silence. */
@@ -26,7 +26,7 @@ export default function Waveform() {
   }, []);
 
   return (
-    <div className="flex h-6 flex-1 items-center justify-center gap-[3px]">
+    <div className="flex h-4 flex-1 items-center justify-center gap-[2px]">
       {bars.map((height, i) => (
         <span
           key={i}
