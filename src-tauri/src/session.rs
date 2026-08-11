@@ -8,7 +8,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::audio::{self, Recorder};
-use crate::{groq, history, insert, widget};
+use crate::{grammar, groq, history, insert, widget};
 
 /// How long an error sits on the pill before it returns to idle.
 const ERROR_LINGER: Duration = Duration::from_millis(2500);
@@ -198,16 +198,33 @@ async fn deliver(app: AppHandle, wav: Vec<u8>, generation: u64, seconds: f32) {
         }
     };
 
-    let text = transcription.text.trim().to_string();
+    let raw = transcription.text.trim().to_string();
 
-    if text.is_empty() {
+    if raw.is_empty() {
         println!("piplo: nothing transcribed");
         set_status(&app, Status::Idle);
         return;
     }
 
-    // M3 puts grammar here, between the transcript and the caret.
-    println!("piplo: transcript — {text}");
+    println!("piplo: transcript — {raw}");
+
+    // Status stays Transcribing across both calls: nothing on screen should
+    // reveal that there are two rather than one.
+    let cleaned = grammar::run(&key, &raw).await;
+
+    // Checked after the second call too, so ✕ during the extra round trip
+    // discards the result exactly as it does for transcription.
+    if stale(&app, generation) {
+        println!("piplo: discarding stale dictation");
+        return;
+    }
+
+    let corrected = cleaned.is_some();
+    let text = cleaned.unwrap_or_else(|| raw.clone());
+
+    if corrected {
+        println!("piplo: cleaned — {text}");
+    }
 
     // Blocking: it polls for modifiers and then paces SendInput batches.
     let typed = text.clone();
@@ -219,10 +236,14 @@ async fn deliver(app: AppHandle, wav: Vec<u8>, generation: u64, seconds: f32) {
         eprintln!("piplo: typing task failed");
     }
 
-    let mut entry = history::Entry::now(text, None);
+    // Only when it differs — an unchanged transcript has nothing to compare.
+    let raw_text = (text != raw).then_some(raw);
+
+    let mut entry = history::Entry::now(text, raw_text);
     entry.duration_secs = transcription.duration.map(|d| d as f32).unwrap_or(seconds);
     entry.language = transcription.language;
     entry.inserted = inserted;
+    entry.corrected = corrected;
     history::append(&app, &entry);
 
     set_status(&app, Status::Idle);

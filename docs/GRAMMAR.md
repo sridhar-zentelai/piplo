@@ -43,10 +43,11 @@ A Groq chat completion, structured like `groq.rs` and sharing its API key.
 POST https://api.groq.com/openai/v1/chat/completions
 Authorization: Bearer $GROQ_API_KEY
 {
-  "model": "llama-3.3-70b-versatile",
+  "model": "qwen/qwen3.6-27b",
   "temperature": 0,
-  "max_tokens": <input tokens × 2, capped>,
-  "reasoning_format": "hidden",
+  "top_p": 0.95,
+  "max_completion_tokens": 2048,
+  "reasoning_effort": "none",
   "messages": [
     { "role": "system", "content": <the prompt below> },
     { "role": "user",   "content": <transcript> }
@@ -63,10 +64,20 @@ is obvious rather than mysterious.
 `temperature: 0` — this is a text filter, not a writing assistant. There is
 nothing to be creative about.
 
-**`reasoning_format: "hidden"`** is belt-and-braces for reasoning models. Some
-emit `<think>…</think>` blocks by default, and that reasoning would otherwise be
-typed straight into the user's document. The output guards strip any that arrive
-anyway.
+**`reasoning_effort: "none"`, not `reasoning_format: "hidden"`.** Both were
+measured against the live API. `qwen/qwen3.6-27b` without `reasoning_effort`
+returns a ~2000-character `<think>` monologue inside `content` — and takes
+1.8–2.5 s doing it, which alone would breach the timeout. `reasoning_format:
+"hidden"` is not the fix: it is rejected for this family, and on
+`llama-3.3-70b-versatile` it returns `400 "reasoning_format is not supported
+with this model"`.
+
+That distinction matters more than it looks. A rejected parameter makes *every*
+dictation fall back to raw text while the feature appears to work — the governing
+rule hides the breakage. With `reasoning_effort: "none"` the call settles at
+**0.39–0.65 s**, roughly 3× inside the 2 s ceiling. The `<think>` stripping in
+the output guards stays as the backstop for whichever model `PIPLO_GRAMMAR_MODEL`
+points at.
 
 **Timeout of 2 s** set on the request itself (`reqwest`'s `.timeout()`), not
 around it — a slow connection should release the socket rather than leak it.

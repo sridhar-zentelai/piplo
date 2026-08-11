@@ -86,7 +86,7 @@ never exposed to the webview.
 | Job | Endpoint | Model |
 | --- | -------- | ----- |
 | Transcription | `POST /openai/v1/audio/transcriptions` | `whisper-large-v3-turbo` |
-| Grammar | `POST /openai/v1/chat/completions` | `llama-3.3-70b-versatile` |
+| Grammar | `POST /openai/v1/chat/completions` | `qwen/qwen3.6-27b` |
 
 Base URL `https://api.groq.com`. The grammar model is overridable with
 `PIPLO_GRAMMAR_MODEL` so a wrong or retired id can be fixed without a rebuild.

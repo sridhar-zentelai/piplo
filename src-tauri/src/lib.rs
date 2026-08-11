@@ -1,4 +1,5 @@
 mod audio;
+mod grammar;
 mod groq;
 mod history;
 mod insert;
