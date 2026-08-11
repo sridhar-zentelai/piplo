@@ -160,7 +160,7 @@ Three windows, declared in `tauri.conf.json`.
 
 | Label | Size | Purpose |
 | ----- | ---- | ------- |
-| `widget` | 96×96, grows to the pill | Frameless, transparent, always on top, `skipTaskbar`, **never takes focus** |
+| `widget` | 56×56, grows to the pill | Frameless, transparent, always on top, `skipTaskbar`, **never takes focus** |
 | `menu` | ~212×180 | The right-click menu. Transparent, hidden until summoned |
 | `home` | 880×600 | Normal decorated window: history + settings. Hidden on startup |
 

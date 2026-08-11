@@ -9,7 +9,7 @@ time.
  ┌──────┐      ┌────────────────────┐      ┌────────────────────┐
  │  ◉   │  →   │ ✕  ▁▃▅▂▇▃▁  0:04 ✓ │  →   │ ✕     ● ● ●        │
  └──────┘      └────────────────────┘      └────────────────────┘
-  96×96                ~260×56                    ~260×56
+  56×56                ~260×56                    ~260×56
 ```
 
 Same shape for `recording` and `transcribing` on purpose — no extra morph
@@ -22,7 +22,7 @@ mid-flight, so the two network calls stay invisible.
 ```json
 {
   "label": "widget",
-  "width": 96, "height": 96,
+  "width": 56, "height": 56,
   "decorations": false,
   "transparent": true,
   "alwaysOnTop": true,
@@ -97,7 +97,7 @@ The shape map keeps the morph declarative:
 
 ```ts
 const SHAPE = {
-  idle:         { width: 96,  height: 96, borderRadius: 48 },
+  idle:         { width: 56,  height: 56, borderRadius: 28 },
   recording:    { width: 260, height: 56, borderRadius: 28 },
   transcribing: { width: 260, height: 56, borderRadius: 28 },
   error:        { width: 260, height: 56, borderRadius: 28 },

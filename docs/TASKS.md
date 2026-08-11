@@ -49,29 +49,29 @@ Work top to bottom. Don't start a task until the one above it is ticked.
   **If it doesn't, stop.** Everything after this assumes focus stays put, and
   no amount of UI on top will fix it.
 
-- [ ] **1.3 — It sits in the right place**
+- [x] **1.3 — It sits in the right place**
   `widget.rs`: bottom-centre of the work area, above the taskbar. Add
   `tauri-plugin-window-state` for position only.
   **See:** correct on launch; still correct after a resolution change.
 
-- [ ] **1.4 — Tray**
+- [x] **1.4 — Tray**
   Icon, tooltip, *Open Piplo* / *Quit*. Left click opens `home`. Closing `home`
   hides it rather than quitting.
   **See:** the icon in the tray; open and close the window three times; the app
   is still alive.
 
-- [ ] **1.5 — Hold to talk**
+- [x] **1.5 — Hold to talk**
   `shortcut.rs`: register `Ctrl+Space`, `Pressed` starts, `Released` finishes.
   Windows auto-repeats `Pressed` while held — guard with `key_down: bool`.
   **See:** hold five seconds; the log prints one start and one stop, not fifty.
 
-- [ ] **1.6 — Chip becomes pill**
+- [x] **1.6 — Chip becomes pill**
   `FloatingWidget.tsx` + `PillContents.tsx` + `MicIcon.tsx` + `appStore.ts` +
   `useWidgetEvents.ts`. Spring `stiffness: 400`, `damping: 32`.
   **See:** hold the shortcut, the chip stretches into the pill; release, it
   goes back. No flicker at either end.
 
-- [ ] **1.7 — Waveform**
+- [x] **1.7 — Waveform**
   `Waveform.tsx`, driven by a fake sine wave through the `level` event so the
   wiring is real even though the number isn't.
   **See:** bars moving inside the pill while held.

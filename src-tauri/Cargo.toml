@@ -47,6 +47,8 @@ uuid = { version = "1", features = ["v4"] }
 # SendInput for typing, and the window flags that stop the widget taking focus.
 windows = { version = "0.62", features = [
   "Win32_Foundation",
+  # GetMonitorInfoW, for the work area the widget sits in.
+  "Win32_Graphics_Gdi",
   "Win32_UI_Input_KeyboardAndMouse",
   "Win32_UI_WindowsAndMessaging",
 ] }
