@@ -1,16 +1,17 @@
-//! The state machine. In M1 it only knows chip ⇄ pill; audio, Groq, grammar and
-//! history hang off `start`/`stop` in M2.
+//! The state machine. In M2 it grows the rest of the order — encode, Groq,
+//! insert, history — around `start` and `stop`.
 
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
-};
+use std::sync::Mutex;
 use std::time::Duration;
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
+use crate::audio::Recorder;
 use crate::widget;
+
+/// How long an error sits on the pill before it returns to idle.
+const ERROR_LINGER: Duration = Duration::from_millis(2500);
 
 /// The single tagged state the frontend renders from.
 #[derive(Debug, Clone, Serialize)]
@@ -18,31 +19,71 @@ use crate::widget;
 pub enum Status {
     Idle,
     Recording,
-    #[allow(dead_code)] // M2 sends this between the two network calls.
+    #[allow(dead_code)] // 2.3 sends this while Groq is working.
     Transcribing,
-    #[allow(dead_code)]
-    Error { message: String },
+    Error {
+        message: String,
+    },
 }
 
-/// Whether a fake-level thread should keep running. Replaced by real RMS in 2.1.
+/// The capture in flight, if any. One at a time is enforced here rather than
+/// debounced in the UI, because the shortcut, the mic button and the menu are
+/// three entry points and only one place should decide.
 #[derive(Default)]
-pub struct Levels(Arc<AtomicBool>);
+pub struct Active(Mutex<Option<Recorder>>);
+
+impl Active {
+    fn lock(&self) -> std::sync::MutexGuard<'_, Option<Recorder>> {
+        match self.0.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
+}
 
 pub fn start(app: &AppHandle) {
-    println!("piplo: session start");
+    let state = app.state::<Active>();
+    let mut slot = state.lock();
 
-    if let Some(window) = app.get_webview_window(widget::LABEL) {
-        widget::set_active(&window, true);
+    if slot.is_some() {
+        return; // already recording
     }
 
-    set_status(app, Status::Recording);
-    spawn_fake_levels(app);
+    match Recorder::start(app.clone()) {
+        Ok(recorder) => {
+            *slot = Some(recorder);
+            drop(slot);
+
+            widen(app);
+            set_status(app, Status::Recording);
+            println!("piplo: session start");
+        }
+        Err(err) => {
+            drop(slot);
+
+            eprintln!("piplo: could not start capture: {err} — {}", err.detail());
+            fail(app, err.to_string());
+        }
+    }
 }
 
 pub fn stop(app: &AppHandle) {
-    println!("piplo: session stop");
+    let recorder = app.state::<Active>().lock().take();
 
-    app.state::<Levels>().0.store(false, Ordering::Relaxed);
+    let Some(recorder) = recorder else {
+        return; // key release with nothing in flight
+    };
+
+    let (samples, sample_rate) = recorder.stop();
+    let seconds = samples.len() as f32 / sample_rate.max(1) as f32;
+
+    println!(
+        "piplo: session stop — {} mono samples at {sample_rate} Hz ({seconds:.2}s)",
+        samples.len()
+    );
+
+    // Let the bars fall to the floor rather than freezing mid-height.
+    let _ = app.emit("level", 0.0_f32);
     set_status(app, Status::Idle);
 }
 
@@ -52,32 +93,21 @@ pub fn set_status(app: &AppHandle, status: Status) {
     }
 }
 
-/// A sine wave through the real `level` channel, so 1.7's wiring is genuine even
-/// though the number isn't. 2.1 swaps the source for cpal's RMS.
-fn spawn_fake_levels(app: &AppHandle) {
-    let running = app.state::<Levels>().0.clone();
-    running.store(true, Ordering::Relaxed);
+/// Errors are shown on the pill, so the window has to be pill-width first.
+fn fail(app: &AppHandle, message: String) {
+    widen(app);
+    set_status(app, Status::Error { message });
 
+    // Never leave the widget stuck showing an error.
     let app = app.clone();
     std::thread::spawn(move || {
-        let mut frame: u32 = 0;
-
-        while running.load(Ordering::Relaxed) {
-            let t = frame as f32 / 30.0;
-            let level = (0.30
-                + 0.45 * (t * 6.5).sin().abs()
-                + 0.20 * (t * 17.0).sin().abs())
-            .clamp(0.0, 1.0);
-
-            if app.emit("level", level).is_err() {
-                break;
-            }
-
-            frame += 1;
-            std::thread::sleep(Duration::from_millis(33));
-        }
-
-        // Let the bars fall to the floor rather than freezing mid-height.
-        let _ = app.emit("level", 0.0_f32);
+        std::thread::sleep(ERROR_LINGER);
+        set_status(&app, Status::Idle);
     });
+}
+
+fn widen(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window(widget::LABEL) {
+        widget::set_active(&window, true);
+    }
 }

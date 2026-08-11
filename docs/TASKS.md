@@ -83,7 +83,7 @@ Work top to bottom. Don't start a task until the one above it is ticked.
 
 Each step below works with the next one stubbed, so each is visible on its own.
 
-- [ ] **2.1 — Real audio**
+- [x] **2.1 — Real audio**
   `audio.rs`: `cpal` capture on a worker thread, downmix to mono, RMS → the
   `level` event at ~30 Hz. Replace the sine wave.
   **See:** the waveform tracks your actual voice and goes flat when you stop.

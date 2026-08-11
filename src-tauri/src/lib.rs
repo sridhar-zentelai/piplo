@@ -1,3 +1,4 @@
+mod audio;
 mod platform;
 mod session;
 mod shortcut;
@@ -14,7 +15,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .manage(shortcut::KeyDown::default())
-        .manage(session::Levels::default())
+        .manage(session::Active::default())
         .plugin(shortcut::plugin())
         // Position only, and only for `home`. The default flags include VISIBLE,
         // which would restore `home` and `menu` as shown even though both are
