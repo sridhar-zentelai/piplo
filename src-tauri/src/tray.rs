@@ -42,6 +42,12 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
+/// Handles the window already being open but behind something else. Calling only
+/// `show()` on an already-shown window does nothing visible, which reads as a
+/// broken tray icon.
+///
+/// This is the one place in the app that *should* take focus — the widget must
+/// never; home is a normal window the user just asked for.
 pub fn show_home(app: &AppHandle) {
     let Some(window) = app.get_webview_window("home") else {
         eprintln!("piplo: window 'home' missing from tauri.conf.json");
@@ -53,7 +59,11 @@ pub fn show_home(app: &AppHandle) {
         return;
     }
 
-    // Unlike the widget, home is a normal window and is meant to take focus.
     let _ = window.unminimize();
     let _ = window.set_focus();
+}
+
+#[tauri::command]
+pub fn open_home(app: AppHandle) {
+    show_home(&app);
 }

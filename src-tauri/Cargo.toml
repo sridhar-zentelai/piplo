@@ -43,6 +43,9 @@ dotenvy = "0.15"
 time = { version = "0.3", features = ["formatting", "parsing", "macros"] }
 # History entry ids.
 uuid = { version = "1", features = ["v4"] }
+# Copy on a history row. navigator.clipboard is unavailable in the packaged app:
+# http://tauri.localhost is not a secure context.
+tauri-plugin-clipboard-manager = "2"
 
 [target.'cfg(windows)'.dependencies]
 # SendInput for typing, and the window flags that stop the widget taking focus.

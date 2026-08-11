@@ -51,8 +51,8 @@
         "title": "Piplo",
         "width": 880,
         "height": 600,
-        "minWidth": 720,
-        "minHeight": 480,
+        "minWidth": 520,
+        "minHeight": 400,
         "visible": false,
         "resizable": true,
         "center": true

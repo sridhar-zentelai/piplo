@@ -128,7 +128,7 @@ Each step below works with the next one stubbed, so each is visible on its own.
   team after"* becomes
   `So I think we should ship it Monday, and then tell the team after.`
 
-- [ ] **3.2 — It can't cost you a dictation** ← *the one that matters*
+- [x] **3.2 — It can't cost you a dictation** ← *the one that matters*
   Timeout, the answered-instead-of-cleaned guard, `<think>` stripping, preamble
   stripping, length bounds. Every failure path types the raw transcript.
   **See:** `PIPLO_GRAMMAR_MODEL=does/not-exist` — your words still type, and a
@@ -141,17 +141,17 @@ Each step below works with the next one stubbed, so each is visible on its own.
 
 ## M4 — Home
 
-- [ ] **4.1 — The window has a shape**
+- [x] **4.1 — The window has a shape**
   `DesktopWindow.tsx` + `Sidebar.tsx`, two entries, dark, no theme switch.
   **See:** tray → Open Piplo → a window you'd be happy to screenshot, with both
   pages empty.
 
-- [ ] **4.2 — History list**
+- [x] **4.2 — History list**
   `useHistory.ts`, `HistoryRow.tsx`, newest first, copy per row, clear all.
   **See:** dictate, open Home, your sentence is at the top; copy puts it on the
   clipboard.
 
-- [ ] **4.3 — Two settings that apply live**
+- [x] **4.3 — Two settings that apply live**
   `settings.rs` (load, validate, save) + `SettingsPanel.tsx` for grammar
   on/off and widget visible.
   **See:** turn grammar off, dictate — the *very next* dictation types raw. No
@@ -159,7 +159,7 @@ Each step below works with the next one stubbed, so each is visible on its own.
   **Then:** delete `settings.json` while it's running and restart; corrupt it
   by hand and restart. Defaults both times, no crash.
 
-- [ ] **4.4 — Rebind the shortcut**
+- [x] **4.4 — Rebind the shortcut**
   `ShortcutRecorder.tsx` using `event.code`, plus `shortcut.rs` rebind that
   re-registers *before* saving.
   **See:** set `Alt+Shift+D`, it works immediately, `Ctrl+Space` doesn't, and

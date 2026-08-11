@@ -8,7 +8,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::audio::{self, Recorder};
-use crate::{grammar, groq, history, insert, widget};
+use crate::{grammar, groq, history, insert, settings, widget};
 
 /// How long an error sits on the pill before it returns to idle.
 const ERROR_LINGER: Duration = Duration::from_millis(2500);
@@ -131,7 +131,7 @@ pub fn finish(app: &AppHandle, trigger: Trigger) {
             "piplo: ignoring tap — {}ms, peak {peak:.3}",
             held.as_millis()
         );
-        set_status(app, Status::Idle);
+        go_idle(app);
         return;
     }
 
@@ -169,7 +169,7 @@ pub fn cancel(app: &AppHandle) {
     }
 
     let _ = app.emit("level", 0.0_f32);
-    set_status(app, Status::Idle);
+    go_idle(app);
     println!("piplo: session cancelled");
 }
 
@@ -202,15 +202,20 @@ async fn deliver(app: AppHandle, wav: Vec<u8>, generation: u64, seconds: f32) {
 
     if raw.is_empty() {
         println!("piplo: nothing transcribed");
-        set_status(&app, Status::Idle);
+        go_idle(&app);
         return;
     }
 
     println!("piplo: transcript — {raw}");
 
-    // Status stays Transcribing across both calls: nothing on screen should
-    // reveal that there are two rather than one.
-    let cleaned = grammar::run(&key, &raw).await;
+    // Read here rather than cached at startup, so flipping the toggle applies to
+    // the very next dictation. Status stays Transcribing across both calls:
+    // nothing on screen should reveal that there are two rather than one.
+    let cleaned = if settings::current(&app).grammar_enabled {
+        grammar::run(&key, &raw).await
+    } else {
+        None
+    };
 
     // Checked after the second call too, so ✕ during the extra round trip
     // discards the result exactly as it does for transcription.
@@ -246,7 +251,7 @@ async fn deliver(app: AppHandle, wav: Vec<u8>, generation: u64, seconds: f32) {
     entry.corrected = corrected;
     history::append(&app, &entry);
 
-    set_status(&app, Status::Idle);
+    go_idle(&app);
 }
 
 pub fn set_status(app: &AppHandle, status: Status) {
@@ -272,13 +277,28 @@ fn fail(app: &AppHandle, message: String) {
     let app = app.clone();
     std::thread::spawn(move || {
         std::thread::sleep(ERROR_LINGER);
-        set_status(&app, Status::Idle);
+        go_idle(&app);
     });
 }
 
 fn widen(app: &AppHandle) {
     if let Some(window) = app.get_webview_window(widget::LABEL) {
         widget::set_active(&window, true);
+
+        // The pill appears for the session even when the chip is hidden by the
+        // "Show floating widget" setting — that setting is not a kill switch.
+        if let Err(err) = window.show() {
+            eprintln!("piplo: could not show the pill: {err}");
+        }
+    }
+}
+
+/// Back to idle, and back out of sight if the user asked for no chip.
+fn go_idle(app: &AppHandle) {
+    set_status(app, Status::Idle);
+
+    if !settings::current(app).widget_visible {
+        widget::set_visible(app, false);
     }
 }
 

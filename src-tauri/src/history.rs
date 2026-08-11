@@ -89,6 +89,53 @@ pub fn append(app: &AppHandle, entry: &Entry) {
     }
 }
 
+/// Whole file, newest first. Malformed lines are skipped rather than fatal — one
+/// bad line from an interrupted write must not hide the entire history.
+#[tauri::command]
+pub fn get_history(app: AppHandle) -> Vec<Entry> {
+    let Some(dir) = directory(&app) else {
+        return Vec::new();
+    };
+
+    let path = dir.join(FILE);
+
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return Vec::new(); // no dictations yet
+    };
+
+    let mut entries: Vec<Entry> = text
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .filter_map(|line| match serde_json::from_str::<Entry>(line) {
+            Ok(entry) => Some(entry),
+            Err(err) => {
+                eprintln!("piplo: skipping malformed history line: {err}");
+                None
+            }
+        })
+        .collect();
+
+    entries.reverse();
+    entries
+}
+
+#[tauri::command]
+pub fn clear_history(app: AppHandle) -> Result<(), String> {
+    let Some(dir) = directory(&app) else {
+        return Err("no history directory".to_string());
+    };
+
+    let path = dir.join(FILE);
+
+    if !path.exists() {
+        return Ok(());
+    }
+
+    // Truncate rather than delete, so the file keeps its permissions and the
+    // append path does not have to recreate it.
+    std::fs::write(&path, "").map_err(|err| err.to_string())
+}
+
 fn directory(app: &AppHandle) -> Option<PathBuf> {
     let root = repo_root();
 

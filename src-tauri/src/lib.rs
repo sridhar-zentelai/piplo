@@ -5,6 +5,7 @@ mod history;
 mod insert;
 mod platform;
 mod session;
+mod settings;
 mod shortcut;
 mod tray;
 mod widget;
@@ -31,6 +32,7 @@ pub fn run() {
         .manage(session::Generation::default())
         .manage(shortcut::KeyDown::default())
         .plugin(shortcut::plugin())
+        .plugin(tauri_plugin_clipboard_manager::init())
         // Position only, and only for `home`. The default flags include VISIBLE,
         // which would restore `home` and `menu` as shown even though both are
         // declared hidden; and the widget computes its own place, so a restored
@@ -46,8 +48,22 @@ pub fn run() {
             session::start_dictation,
             session::finish_dictation,
             session::cancel_dictation,
+            settings::get_settings,
+            settings::set_settings,
+            history::get_history,
+            history::clear_history,
+            tray::open_home,
         ])
         .setup(|app| {
+            let handle = app.handle();
+
+            // Before the shortcut is registered — the saved accelerator decides
+            // what gets bound.
+            let saved = settings::load(handle);
+            let shortcut_accelerator = saved.shortcut.clone();
+            let widget_visible = saved.widget_visible;
+            app.manage(settings::Store::new(saved));
+
             // After the windows exist — the flags need a real HWND.
             for label in [widget::LABEL, "menu"] {
                 match app.get_webview_window(label) {
@@ -63,8 +79,12 @@ pub fn run() {
                 widget::position_bottom_centre(&window);
             }
 
-            shortcut::register(app.handle());
-            tray::create(app.handle())?;
+            if !widget_visible {
+                widget::set_visible(handle, false);
+            }
+
+            shortcut::register_initial(handle, &shortcut_accelerator);
+            tray::create(handle)?;
 
             Ok(())
         })

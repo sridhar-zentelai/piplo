@@ -1,10 +1,21 @@
-/** Shell for the `home` window. The sidebar and pages arrive in M4. */
+import { useState } from "react";
+import Sidebar, { type Page } from "@/components/Sidebar";
+import HomePage from "@/pages/HomePage";
+import SettingsPage from "@/pages/SettingsPage";
+
+/**
+ * No router. Two views with no URLs and no deep linking would make a router an
+ * abstraction with a single call site.
+ */
 export default function DesktopWindow() {
+  const [page, setPage] = useState<Page>("home");
+
   return (
-    <main className="flex h-full items-center justify-center bg-[#141414]">
-      <p className="font-display text-2xl font-medium tracking-tight text-foreground">
-        Piplo
-      </p>
-    </main>
+    <div className="flex h-full bg-[#141414] text-foreground">
+      <Sidebar page={page} onNavigate={setPage} />
+      <main className="flex min-w-0 flex-1 flex-col">
+        {page === "home" ? <HomePage /> : <SettingsPage />}
+      </main>
+    </div>
   );
 }

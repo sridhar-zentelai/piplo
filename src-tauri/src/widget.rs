@@ -114,3 +114,27 @@ fn work_area(_window: &WebviewWindow) -> Option<RECT> {
 pub fn widget_set_active(window: WebviewWindow, active: bool) {
     set_active(&window, active);
 }
+
+/// The "Show floating widget" setting.
+///
+/// Turning it off must not turn dictation off — it is a "get out of my screen"
+/// control, not a kill switch. The pill still appears for the duration of a
+/// session and goes away again afterwards.
+pub fn set_visible(app: &tauri::AppHandle, visible: bool) {
+    use tauri::Manager;
+
+    let Some(window) = app.get_webview_window(LABEL) else {
+        return;
+    };
+
+    let result = if visible {
+        position_bottom_centre(&window);
+        window.show()
+    } else {
+        window.hide()
+    };
+
+    if let Err(err) = result {
+        eprintln!("piplo: could not set widget visibility: {err}");
+    }
+}

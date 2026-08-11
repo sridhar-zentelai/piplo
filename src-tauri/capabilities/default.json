@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Capability shared by Piplo's three windows",
   "windows": ["widget", "menu", "home"],
-  "permissions": ["core:default"]
+  "permissions": ["core:default", "clipboard-manager:allow-write-text"]
 }
