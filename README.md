@@ -95,6 +95,7 @@ does not follow you to another machine.
 | [CLAUDE.md](CLAUDE.md) | Scope, stack, rules. Read first |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Module map and data flow |
 | [docs/MVP_PLAN.md](docs/MVP_PLAN.md) | Build order, milestone by milestone |
+| [docs/TASKS.md](docs/TASKS.md) | The same order as a checklist — one task per session |
 | [docs/WIDGET.md](docs/WIDGET.md) | The widget, its states, the right-click menu |
 | [docs/TRANSCRIBE.md](docs/TRANSCRIBE.md) | Capture → Groq → keystrokes |
 | [docs/GRAMMAR.md](docs/GRAMMAR.md) | The cleanup step and its guardrails |
