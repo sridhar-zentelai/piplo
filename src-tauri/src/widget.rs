@@ -77,7 +77,7 @@ fn target_position(window: &WebviewWindow) -> Option<PhysicalPosition<i32>> {
 /// The monitor's work area — `rcWork`, which excludes the taskbar. `rcMonitor`
 /// would put the chip behind it on a default Windows setup.
 #[cfg(windows)]
-fn work_area(window: &WebviewWindow) -> Option<RECT> {
+pub fn work_area(window: &WebviewWindow) -> Option<RECT> {
     let hwnd = match window.hwnd() {
         Ok(hwnd) => HWND(hwnd.0),
         Err(err) => {
@@ -104,7 +104,7 @@ fn work_area(window: &WebviewWindow) -> Option<RECT> {
 }
 
 #[cfg(not(windows))]
-fn work_area(_window: &WebviewWindow) -> Option<RECT> {
+pub fn work_area(_window: &WebviewWindow) -> Option<RECT> {
     None
 }
 

@@ -68,3 +68,15 @@ export function clearHistory(): Promise<void> {
 export function openHome(): Promise<void> {
   return invoke("open_home");
 }
+
+export function showWidgetMenu(): Promise<void> {
+  return invoke("show_widget_menu");
+}
+
+export function hideWidgetMenu(): Promise<void> {
+  return invoke("hide_widget_menu");
+}
+
+export function quitApp(): Promise<void> {
+  return invoke("quit_app");
+}

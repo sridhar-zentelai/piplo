@@ -3,6 +3,7 @@ mod grammar;
 mod groq;
 mod history;
 mod insert;
+mod menu;
 mod platform;
 mod session;
 mod settings;
@@ -31,6 +32,7 @@ pub fn run() {
         .manage(session::Active::default())
         .manage(session::Generation::default())
         .manage(shortcut::KeyDown::default())
+        .manage(menu::MenuOpen::default())
         .plugin(shortcut::plugin())
         .plugin(tauri_plugin_clipboard_manager::init())
         // Position only, and only for `home`. The default flags include VISIBLE,
@@ -53,6 +55,9 @@ pub fn run() {
             history::get_history,
             history::clear_history,
             tray::open_home,
+            menu::show_widget_menu,
+            menu::hide_widget_menu,
+            menu::quit_app,
         ])
         .setup(|app| {
             let handle = app.handle();
@@ -65,7 +70,7 @@ pub fn run() {
             app.manage(settings::Store::new(saved));
 
             // After the windows exist — the flags need a real HWND.
-            for label in [widget::LABEL, "menu"] {
+            for label in [widget::LABEL, menu::LABEL] {
                 match app.get_webview_window(label) {
                     Some(window) => {
                         platform::hide_from_alt_tab(&window);

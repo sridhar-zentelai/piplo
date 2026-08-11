@@ -170,13 +170,13 @@ Each step below works with the next one stubbed, so each is visible on its own.
 
 ## M5 — Right-click menu
 
-- [ ] **5.1 — A menu appears**
+- [x] **5.1 — A menu appears**
   `menu.rs` + `WidgetMenu.tsx`. Positioned next to the widget, flipped when the
   widget is near a screen edge. Dismissed by `Escape` or a click outside.
   **See:** right-click the widget in all four corners of the screen — the menu
   is fully on screen every time.
 
-- [ ] **5.2 — The items work**
+- [x] **5.2 — The items work**
   *Dictate* · *Grammar correction* · *Open Piplo* · *Quit*.
   **See:** *Dictate* runs a whole session with no keyboard; the grammar toggle
   matches the settings page in both directions; *Quit* leaves no orphaned tray

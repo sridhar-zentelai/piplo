@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { motion } from "framer-motion";
 import PillContents from "@/components/PillContents";
 import { useWidgetEvents } from "@/hooks/useWidgetEvents";
-import { widgetSetActive } from "@/lib/commands";
+import { showWidgetMenu, widgetSetActive } from "@/lib/commands";
 import { useAppStore } from "@/store/appStore";
 import { cn } from "@/lib/utils";
 
@@ -29,7 +29,10 @@ export default function FloatingWidget() {
   }, [idle]);
 
   return (
-    <div className="flex h-full w-full items-center justify-center">
+    <div
+      className="flex h-full w-full items-center justify-center"
+      onContextMenu={() => void showWidgetMenu()}
+    >
       <motion.div
         animate={SHAPE[status.kind]}
         transition={MORPH}
