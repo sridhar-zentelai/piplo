@@ -34,7 +34,7 @@ Work top to bottom. Don't start a task until the one above it is ticked.
 
 ## M1 — Shell
 
-- [ ] **1.1 — Three windows**
+- [x] **1.1 — Three windows**
   `widget`, `menu`, `home` in `tauri.conf.json` per
   [CLAUDE.md](../CLAUDE.md#windows). Widget visible, other two hidden.
   `main.tsx` picks its root component from the window label.

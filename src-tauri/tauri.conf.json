@@ -12,9 +12,50 @@
   "app": {
     "windows": [
       {
+        "label": "widget",
+        "url": "index.html",
         "title": "Piplo",
-        "width": 800,
-        "height": 600
+        "width": 96,
+        "height": 96,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "visible": true,
+        "resizable": false,
+        "maximizable": false,
+        "minimizable": false,
+        "skipTaskbar": true,
+        "shadow": false,
+        "focus": false
+      },
+      {
+        "label": "menu",
+        "url": "index.html",
+        "title": "Piplo menu",
+        "width": 212,
+        "height": 180,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "visible": false,
+        "resizable": false,
+        "maximizable": false,
+        "minimizable": false,
+        "skipTaskbar": true,
+        "shadow": false,
+        "focus": false
+      },
+      {
+        "label": "home",
+        "url": "index.html",
+        "title": "Piplo",
+        "width": 880,
+        "height": 600,
+        "minWidth": 720,
+        "minHeight": 480,
+        "visible": false,
+        "resizable": true,
+        "center": true
       }
     ],
     "security": {
