@@ -26,7 +26,7 @@ Work top to bottom. Don't start a task until the one above it is ticked.
   `.gitignore` — the scaffold overwrites it.
   **See:** `bun run tauri dev` opens a window and closes cleanly.
 
-- [ ] **0.2 — Colors and fonts are Piplo's**
+- [x] **0.2 — Colors and fonts are Piplo's**
   The palette from [CLAUDE.md](../CLAUDE.md#colors) as CSS variables, `#7C5CFF`
   included. No light palette anywhere.
   **See:** a throwaway page in the default window showing each color and font.
