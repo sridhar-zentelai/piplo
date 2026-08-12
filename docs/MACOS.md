@@ -18,8 +18,9 @@ The whole port is **four seams**. Everything else already compiles anywhere.
 | CI compile loop + smoke screenshot | **Done** |
 | `platform::no_activate` — the non-activating panel | **Done**, needs a real Mac to confirm. Written inline with `objc2` rather than via `tauri-nspanel`, which is not on crates.io. |
 | `macOSPrivateApi` for real transparency | **Done** — caught by the smoke test's stderr |
+| Per-platform shortcut default and policy | **Done.** `Cmd+Shift+Space` on macOS, and `reject_reserved` no longer refuses Cmd — which would have made Piplo refuse its own default and bind nothing. |
 | Accessibility row in Settings | Not started |
-| Per-platform shortcut default and labels | Not started |
+| `Cmd`/`Option` modifier symbols in the recorder | Not started (cosmetic) |
 | Template tray icon | Not started |
 | `INSTALL.md` | Not started |
 
