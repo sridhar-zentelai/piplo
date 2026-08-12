@@ -57,13 +57,25 @@ other windows.
 Piplo sends your audio to Groq to be turned into text, so it needs a key. It's
 free.
 
-1. Go to **https://console.groq.com/keys** and sign in (or sign up)
+### ⚠️ Sign up with "Continue with Google"
+
+> Groq's login screen offers several ways in. **Use "Continue with Google"** —
+> the top button, with the coloured G.
+>
+> **Do not use "Continue with email"** at the bottom. That route does not create
+> a fully working account: you can sign in, but you won't be able to create a
+> usable API key, and nothing on the page tells you that's the reason. If you've
+> already signed up that way, just sign in again with Google instead.
+
+Then:
+
+1. Go to **https://console.groq.com/keys** and **Continue with Google**
 2. Click **Create API Key**, give it any name, and copy the key
 3. In Piplo, click **Settings** in the left sidebar
 4. Paste the key into the **API key** box and save
 
-The key is stored on your Mac only. Copy it as soon as it's created — Groq won't
-show it to you a second time.
+The key is stored on your Mac only. **Copy it as soon as it's created** — Groq
+won't show it to you a second time. If you lose it, delete it and make a new one.
 
 ---
 
@@ -119,6 +131,7 @@ switches keyboard languages), change it in **Settings → Shortcut**.
 | The chip says **"needs Accessibility permission"** and nothing gets typed | Step 4 isn't finished. Your words aren't lost — they're on your clipboard, so press **Cmd + V** to paste. Then redo step 4, including the restart. |
 | Nothing is typed and no message appears | Check under **Home** — if the dictation is listed there, it was transcribed and the problem is step 4. If it isn't listed, the problem is earlier. |
 | The chip says **"No API key"** | Step 2 isn't finished. |
+| Groq won't let you create an API key, or the key it gave you is rejected | You almost certainly signed up with **Continue with email**. Sign in again using **Continue with Google** and create the key from that account — see step 2. |
 | The chip flashes an error straight away | Usually no internet, or the API key was pasted with a missing character. Try creating a fresh key. |
 | Nothing happens at all when you hold the shortcut | Another app has claimed the same shortcut. Pick a different one in **Settings → Shortcut**. |
 | The text appears inside Piplo instead of your document | This shouldn't happen — please report it, it's a real bug. |
