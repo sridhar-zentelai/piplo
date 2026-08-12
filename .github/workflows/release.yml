@@ -1,0 +1,75 @@
+# Builds the artefacts that get handed to a person.
+#
+# Manual only — not because runners cost anything on a public repo, but because
+# a .dmg is only worth producing when there is a person waiting for it. check.yml
+# is what runs per commit, and it already builds and launches the app.
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Which bundle to build
+        type: choice
+        default: macos
+        options: [macos, windows, both]
+
+jobs:
+  macos:
+    if: inputs.platform == 'macos' || inputs.platform == 'both'
+    name: macOS (universal)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          # Universal means both, linked into one binary. Without this the app
+          # only runs on Apple Silicon, and "it says it's damaged" on an Intel
+          # Mac is indistinguishable from every other Gatekeeper failure.
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: release-macos
+
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+
+      # Unsigned. Signing needs an Apple Developer account ($99/yr); until then
+      # the recipient has to allow it through System Settings, which INSTALL.md
+      # walks through. Ad-hoc signing here would not help: Gatekeeper wants a
+      # Developer ID, not any signature.
+      - run: bun run tauri build --target universal-apple-darwin
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: piplo-macos-universal
+          path: |
+            src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+            src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app
+          if-no-files-found: error
+
+  windows:
+    if: inputs.platform == 'windows' || inputs.platform == 'both'
+    name: Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: release-windows
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run tauri build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: piplo-windows
+          path: |
+            src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/msi/*.msi
+          if-no-files-found: error
