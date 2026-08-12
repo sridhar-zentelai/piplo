@@ -16,7 +16,8 @@ The whole port is **four seams**. Everything else already compiles anywhere.
 | `insert::Insert` outcome + clipboard rescue in `session.rs` | **Done** — also fixes the Windows UIPI case |
 | `NSMicrophoneUsageDescription`, entitlements, bundle config | **Done** |
 | CI compile loop + smoke screenshot | **Done** |
-| `platform::no_activate` — the non-activating panel | **Not started.** Until this lands, clicking the widget on macOS activates Piplo, so a mouse-started dictation types into Piplo itself. The shortcut path is unaffected. |
+| `platform::no_activate` — the non-activating panel | **Done**, needs a real Mac to confirm. Written inline with `objc2` rather than via `tauri-nspanel`, which is not on crates.io. |
+| `macOSPrivateApi` for real transparency | **Done** — caught by the smoke test's stderr |
 | Accessibility row in Settings | Not started |
 | Per-platform shortcut default and labels | Not started |
 | Template tray icon | Not started |

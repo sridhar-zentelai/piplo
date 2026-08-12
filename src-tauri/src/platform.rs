@@ -66,18 +66,86 @@ pub fn hide_from_alt_tab(window: &WebviewWindow) {
 ///
 /// Windows: `WS_EX_NOACTIVATE` delivers clicks without activating.
 ///
-/// macOS: **not yet implemented.** There is no `NSWindow` flag for this; the
-/// window has to be converted to an `NSPanel` carrying
-/// `NSWindowStyleMaskNonactivatingPanel`, which needs `tauri-nspanel`. Until
-/// that lands, clicking the widget on macOS activates Piplo and a dictation
-/// started with the mouse would be typed into Piplo itself. The shortcut path
-/// is unaffected, because it never touches the window.
+/// macOS: `NSWindowStyleMaskNonactivatingPanel`, which requires the window to
+/// actually be an `NSPanel` — see `no_activate` below.
 pub fn no_activate(window: &WebviewWindow) {
     #[cfg(windows)]
     add_ex_style(window.as_ref().window(), WS_EX_NOACTIVATE.0 as isize);
 
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    make_nonactivating_panel(window);
+
+    #[cfg(not(any(windows, target_os = "macos")))]
     let _ = window;
+}
+
+/// Repoint a Tauri `NSWindow` at the `NSPanel` class, then ask for the style mask
+/// that stops it activating the app.
+///
+/// macOS has no per-window "deliver clicks without activating" flag.
+/// `NSWindowStyleMaskNonactivatingPanel` is the only thing that does it, and it
+/// is honoured by `NSPanel` alone — while Tauri creates plain `NSWindow`s and
+/// offers no hook to change that.
+///
+/// So the class gets swapped underneath the object. This is sound because
+/// `NSPanel` declares no instance variables of its own over `NSWindow`: the
+/// memory layout is identical and only the method table changes. It is the same
+/// approach `tauri-nspanel` takes, done inline here because that crate is not
+/// published to crates.io and a git dependency on a moving branch is a poor
+/// trade for thirty lines.
+///
+/// Also raised to the floating level and made to join every Space, so the chip
+/// stays reachable over a full-screen app — which is where dictation is most
+/// useful and where an ordinary window would simply vanish.
+#[cfg(target_os = "macos")]
+fn make_nonactivating_panel(window: &WebviewWindow) {
+    use objc2::ffi::object_setClass;
+    use objc2::runtime::AnyObject;
+    use objc2::{ClassType, MainThreadMarker};
+    use objc2_app_kit::{
+        NSFloatingWindowLevel, NSPanel, NSWindow, NSWindowCollectionBehavior, NSWindowStyleMask,
+    };
+
+    // `NSWindow` is main-thread-only, and this runs from `setup`, which is on it.
+    // Bailing beats reaching into AppKit from the wrong thread.
+    if MainThreadMarker::new().is_none() {
+        eprintln!(
+            "piplo: no_activate called off the main thread for {}",
+            window.label()
+        );
+        return;
+    }
+
+    let ptr = match window.as_ref().window().ns_window() {
+        Ok(ptr) if !ptr.is_null() => ptr as *mut AnyObject,
+        Ok(_) => {
+            eprintln!("piplo: null NSWindow for {}", window.label());
+            return;
+        }
+        // Degrade rather than panic, but log loudly: without this the widget
+        // steals focus and dictations get typed into Piplo itself.
+        Err(err) => {
+            eprintln!("piplo: no NSWindow for {}: {err}", window.label());
+            return;
+        }
+    };
+
+    // SAFETY: `ptr` is a live NSWindow owned by Tauri for the lifetime of the
+    // app, and NSPanel is layout-compatible with NSWindow.
+    let panel: &NSWindow = unsafe {
+        object_setClass(ptr, NSPanel::class() as *const _);
+        &*(ptr as *const NSWindow)
+    };
+
+    // Preserve what Tauri set up — borderless, resizable and so on — and add to
+    // it. Replacing the mask outright would undo the frameless window.
+    panel.setStyleMask(panel.styleMask() | NSWindowStyleMask::NonactivatingPanel);
+    panel.setLevel(NSFloatingWindowLevel);
+    panel.setCollectionBehavior(
+        NSWindowCollectionBehavior::CanJoinAllSpaces
+            | NSWindowCollectionBehavior::Stationary
+            | NSWindowCollectionBehavior::FullScreenAuxiliary,
+    );
 }
 
 #[cfg(windows)]

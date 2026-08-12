@@ -59,8 +59,16 @@ tauri-plugin-clipboard-manager = "2"
 # Tauri's own dependency tree at these versions, so this pins what is there
 # rather than pulling anything new into the build.
 objc2 = "0.6"
-# NSScreen.visibleFrame, for the work area that excludes the Dock and menu bar.
-objc2-app-kit = { version = "0.3", features = ["NSScreen", "NSEvent"] }
+# NSScreen.visibleFrame for the work area, and NSPanel for the widget that must
+# never activate. `NSPanel` alone does not compile — the type is declared behind
+# NSResponder and NSWindow as well, because it inherits from both.
+objc2-app-kit = { version = "0.3", features = [
+  "NSScreen",
+  "NSEvent",
+  "NSPanel",
+  "NSWindow",
+  "NSResponder",
+] }
 # CGEvent for typing, plus the cursor, key and modifier state the menu polls.
 objc2-core-graphics = { version = "0.3", features = [
   "CGEvent",
