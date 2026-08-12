@@ -60,12 +60,14 @@ free.
 ### ⚠️ Sign up with "Continue with Google"
 
 > Groq's login screen offers several ways in. **Use "Continue with Google"** —
-> the top button, with the coloured G.
+> the top button, with the coloured G, outlined in red below.
 >
 > **Do not use "Continue with email"** at the bottom. That route does not create
 > a fully working account: you can sign in, but you won't be able to create a
 > usable API key, and nothing on the page tells you that's the reason. If you've
 > already signed up that way, just sign in again with Google instead.
+
+![Groq's login screen. "Continue with Google" is outlined in red at the top; "Continue with email" at the bottom is the one to avoid.](docs/images/groq-login.png)
 
 Then:
 
