@@ -27,11 +27,15 @@ that are deliberately not here.
 
 ## Requirements
 
-- Windows 10/11
+- Windows 10/11, or macOS 11 (Big Sur) and later
 - [Bun](https://bun.sh)
-- [Rust](https://rustup.rs) (stable, MSVC toolchain)
-- WebView2 (preinstalled on Windows 11)
+- [Rust](https://rustup.rs) (stable; MSVC toolchain on Windows)
+- WebView2 on Windows (preinstalled on Windows 11)
 - A [Groq API key](https://console.groq.com/keys)
+
+**Installing a built Mac app?** [INSTALL.md](INSTALL.md) is the guide to send
+with it — macOS needs four permissions granted before Piplo can type, and one of
+them fails silently. Porting notes are in [docs/MACOS.md](docs/MACOS.md).
 
 ## Setup
 
