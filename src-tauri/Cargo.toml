@@ -18,7 +18,14 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon", "image-png"] }
+# `macos-private-api` is what makes `"transparent": true` actually transparent on
+# macOS — without it the widget and menu render as opaque rectangles. It rules out
+# the Mac App Store, which the CGEvent typing in insert.rs already did.
+tauri = { version = "2", features = [
+  "tray-icon",
+  "image-png",
+  "macos-private-api",
+] }
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-window-state = "2"
 
