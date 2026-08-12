@@ -1,0 +1,160 @@
+# The compile loop for the macOS port.
+#
+# Piplo is developed on Windows, and macOS code cannot be compiled there at all:
+# there is no Apple SDK for Windows and no cross-compiler. Without this workflow
+# the macOS seams would be written with no compiler feedback whatsoever, which is
+# the single largest avoidable risk in the port.
+#
+# macOS runs on every push. Windows is opt-in from the Actions tab, because it is
+# developed and built locally every day — CI is here for the platform this machine
+# cannot compile for.
+name: check
+
+# Every branch, not just main: the macOS port is developed on a branch, and a
+# compile loop that only runs after a merge is not a loop. No `pull_request`
+# trigger — for a branch in this repo that would run everything twice.
+on:
+  push:
+  workflow_dispatch:
+
+# A new push makes the previous run's answer irrelevant, and cancelling gets the
+# answer for the current commit sooner. Free on a public repo either way.
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    name: macOS
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: macos-14
+
+      # tauri-build reads tauri.conf.json and expects the frontend output to
+      # exist, so a missing dist/ fails the build for a reason that has nothing
+      # to do with the Rust code.
+      - run: mkdir -p dist && touch dist/index.html
+
+      - name: cargo check
+        working-directory: src-tauri
+        run: cargo check --all-targets
+
+      # Warnings only — this is a compile loop, not a gate. `-D warnings` here
+      # would block the port on style while the seams are half-written.
+      - name: clippy
+        working-directory: src-tauri
+        run: cargo clippy --all-targets
+
+      # Where the coordinate flip and the UTF-16 chunking get proven. Both are
+      # written as pure functions precisely so they can be tested here rather
+      # than discovered by the person the .dmg was sent to.
+      - name: cargo test
+        working-directory: src-tauri
+        run: cargo test
+
+  # The reason a public repo matters more than "free minutes": a macOS runner is
+  # a real Mac with a real display server, so it can launch the app and be
+  # photographed. That answers questions a compiler cannot — is the chip on
+  # screen, is it above the Dock, does it render at all — without owning a Mac.
+  #
+  # It cannot answer anything needing the Accessibility permission (typing), or
+  # anything needing a microphone: the runner has no input device.
+  smoke:
+    name: macOS smoke test
+    needs: macos
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: macos-14
+
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+
+      # Debug, and the .app only — no .dmg. This is for launching, not shipping.
+      - run: bun run tauri build --debug --bundles app
+
+      # Run the inner binary rather than `open`, so stderr is capturable. Piplo
+      # logs every degradation to stderr, which makes this log the most useful
+      # artefact here.
+      - name: Launch and photograph
+        run: |
+          APP=src-tauri/target/debug/bundle/macos/Piplo.app
+          "$APP/Contents/MacOS/piplo" > launch.log 2>&1 &
+          PID=$!
+
+          # Long enough for three windows, the tray icon and the widget's
+          # placement pass.
+          sleep 12
+
+          if ! kill -0 $PID 2>/dev/null; then
+            echo "::error::Piplo exited during startup"
+            cat launch.log
+            exit 1
+          fi
+
+          screencapture -x screen.png
+          echo "--- stderr ---"
+          cat launch.log
+
+          # Any line Piplo logs starting 'piplo:' on stderr is a degradation it
+          # chose to survive. Surfaced as warnings so they are visible in the run
+          # summary instead of buried in the log.
+          grep '^piplo:' launch.log | sed 's/^/::warning::/' || true
+
+          kill $PID 2>/dev/null || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-smoke
+          path: |
+            screen.png
+            launch.log
+          if-no-files-found: warn
+
+  # Opt-in only: Actions tab -> check -> Run workflow. Windows is built locally
+  # every day, so running it per push is noise. Worth one click after a change to
+  # shared code — `platform.rs`, `insert.rs`, `session.rs` — where a macOS fix can
+  # break Windows without anything on this machine noticing.
+  windows:
+    name: Windows
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: windows-latest
+      - run: mkdir -p dist && touch dist/index.html
+        shell: bash
+      - name: cargo check
+        working-directory: src-tauri
+        run: cargo check --all-targets
+      - name: cargo test
+        working-directory: src-tauri
+        run: cargo test
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      # `bun run build` is `tsc && vite build`, so this type-checks too.
+      - run: bun run build

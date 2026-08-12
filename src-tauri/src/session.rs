@@ -13,6 +13,9 @@ use crate::{grammar, groq, history, insert, settings, widget};
 /// How long an error sits on the pill before it returns to idle.
 const ERROR_LINGER: Duration = Duration::from_millis(2500);
 
+/// Longer, because "copied instead" is an instruction and not just a report.
+const RESCUE_LINGER: Duration = Duration::from_millis(6000);
+
 /// A brushed key should not cost an API call.
 const MIN_DURATION: Duration = Duration::from_millis(300);
 
@@ -230,27 +233,60 @@ async fn deliver(app: AppHandle, wav: Vec<u8>, generation: u64, seconds: f32) {
         println!("piplo: cleaned — {text}");
     }
 
-    // Blocking: it polls for modifiers and then paces SendInput batches.
+    // Blocking: it polls for modifiers and then paces the synthesised input.
     let typed = text.clone();
-    let inserted = tauri::async_runtime::spawn_blocking(move || insert::type_text(&typed))
+    let outcome = tauri::async_runtime::spawn_blocking(move || insert::type_text(&typed))
         .await
-        .is_ok();
+        .unwrap_or_else(|err| {
+            eprintln!("piplo: typing task failed: {err}");
+            insert::Insert::Blocked("the typing step failed")
+        });
 
-    if !inserted {
-        eprintln!("piplo: typing task failed");
-    }
+    let inserted = outcome == insert::Insert::Typed;
 
     // Only when it differs — an unchanged transcript has nothing to compare.
     let raw_text = (text != raw).then_some(raw);
 
-    let mut entry = history::Entry::now(text, raw_text);
+    // Written before anything is shown on the pill, and with the honest
+    // `inserted` value. The history entry is the last line of defence: whatever
+    // happens next, the dictation exists somewhere the user can get at it.
+    let mut entry = history::Entry::now(text.clone(), raw_text);
     entry.duration_secs = transcription.duration.map(|d| d as f32).unwrap_or(seconds);
     entry.language = transcription.language;
     entry.inserted = inserted;
     entry.corrected = corrected;
     history::append(&app, &entry);
 
+    if let insert::Insert::Blocked(why) = outcome {
+        rescue(&app, &text, why);
+        return;
+    }
+
     go_idle(&app);
+}
+
+/// The dictation could not be typed. Get it somewhere reachable and say so.
+///
+/// The clipboard is deliberately untouched on the happy path — clobbering what
+/// the user had copied is its own small data loss. It is only the lesser evil
+/// than losing what they just spoke.
+fn rescue(app: &AppHandle, text: &str, why: &str) {
+    use tauri_plugin_clipboard_manager::ClipboardExt;
+
+    let message = match app.clipboard().write_text(text.to_string()) {
+        Ok(()) => {
+            println!("piplo: not typed ({why}); copied to the clipboard");
+            format!("{why} — copied instead, press paste")
+        }
+        Err(err) => {
+            eprintln!("piplo: could not copy the dictation either: {err}");
+            format!("{why} — saved to history")
+        }
+    };
+
+    // Its own linger: this message asks the user to go and do something, and
+    // 2.5s is not long enough to read it, let alone act.
+    fail_for(app, message, RESCUE_LINGER);
 }
 
 pub fn set_status(app: &AppHandle, status: Status) {
@@ -269,13 +305,17 @@ fn stale(app: &AppHandle, generation: u64) -> bool {
 
 /// Errors are shown on the pill, so the window has to be pill-width first.
 fn fail(app: &AppHandle, message: String) {
+    fail_for(app, message, ERROR_LINGER);
+}
+
+fn fail_for(app: &AppHandle, message: String, linger: Duration) {
     widen(app);
     set_status(app, Status::Error { message });
 
     // Never leave the widget stuck showing an error.
     let app = app.clone();
     std::thread::spawn(move || {
-        std::thread::sleep(ERROR_LINGER);
+        std::thread::sleep(linger);
         go_idle(&app);
     });
 }
