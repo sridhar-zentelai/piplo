@@ -20,7 +20,7 @@ should never lose a dictation to a failure.
 
 # Scope
 
-Piplo has **four** features and nothing else:
+Piplo has **five** features and nothing else:
 
 | # | Feature | What it is |
 | - | ------- | ---------- |
@@ -28,6 +28,7 @@ Piplo has **four** features and nothing else:
 | 2 | **Grammar** | The transcript is cleaned up automatically before it is typed. No button, no picker |
 | 3 | **Home + history** | A desktop window listing past dictations, newest first, with copy |
 | 4 | **Settings** | Three settings: shortcut, grammar on/off, widget visible |
+| 5 | **Snippets** | Say a saved trigger on its own and Piplo types the canned text instead |
 
 Plus the surface they live on:
 
@@ -43,7 +44,8 @@ Not "later" — do not write code for these at all:
 - Multiple AI providers or a provider picker
 - Translation
 - Prompt templates, rewrite styles, per-app tone
-- Snippets / text expansion
+- Keyboard-triggered text expansion — [snippets](docs/SNIPPETS.md) are spoken
+  only, and never watch what you type
 - Voice commands
 - Clipboard history
 - Authentication, billing, accounts
@@ -54,7 +56,7 @@ Not "later" — do not write code for these at all:
 - Light theme
 - Linux support
 
-**Before adding anything, ask: is this one of the four features?** If not, it
+**Before adding anything, ask: is this one of the five features?** If not, it
 does not get built. Piplo is deliberately smaller than it could be.
 
 ---
@@ -128,7 +130,13 @@ audio.rs             (release)
                      groq.rs        (transcribe)
                          │
                          ▼
+                   snippets.rs      (trigger? → content, skip grammar)
+                         │
+                         ▼
                     grammar.rs      (clean up, fails soft)
+                         │
+                         ▼
+                   snippets.rs      (trigger the cleanup revealed?)
                          │
               ┌──────────┴──────────┐
               ▼                     ▼
@@ -267,12 +275,15 @@ src/
     WidgetMenu.tsx         the right-click menu
     Sidebar.tsx            home window nav
     HistoryRow.tsx         one dictation
+    SnippetRow.tsx         one snippet, and its edit form
+    Pagination.tsx         shared by history and snippets
     SettingsPanel.tsx
     ShortcutRecorder.tsx   captures a real chord
     ui/                    shadcn primitives
   pages/
     DesktopWindow.tsx      shell for the `home` window
     HomePage.tsx           history list
+    SnippetsPage.tsx       triggers → canned text
     SettingsPage.tsx
   hooks/
     useWidgetEvents.ts     status + level listeners
@@ -294,6 +305,7 @@ src-tauri/src/
   audio.rs      cpal capture, downmix, WAV
   groq.rs       transcription
   grammar.rs    cleanup
+  snippets.rs   triggers, matching, snippets.json
   insert.rs     SendInput
   history.rs    JSONL
   settings.rs   settings.json
@@ -325,6 +337,7 @@ Do not skip ahead — each milestone is verifiable on its own.
 2. **[Transcribe](docs/TRANSCRIBE.md)** — capture → Groq → type → log.
 3. **[Grammar](docs/GRAMMAR.md)** — the cleanup step.
 4. **[Home](docs/HOME.md)** — history list and [settings](docs/SETTINGS.md).
-5. **[Right-click menu](docs/WIDGET.md#right-click-menu)** — the last thing, because it needs the rest.
+5. **[Right-click menu](docs/WIDGET.md#right-click-menu)** — needs the rest to exist first.
+6. **[Snippets](docs/SNIPPETS.md)** — triggers, matching, and the page.
 
 Full plan and per-milestone verification: [docs/MVP_PLAN.md](docs/MVP_PLAN.md).

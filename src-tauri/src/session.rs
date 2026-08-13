@@ -8,7 +8,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::audio::{self, Recorder};
-use crate::{grammar, groq, history, insert, settings, widget};
+use crate::{grammar, groq, history, insert, settings, snippets, widget};
 
 /// How long an error sits on the pill before it returns to idle.
 const ERROR_LINGER: Duration = Duration::from_millis(2500);
@@ -210,10 +210,15 @@ async fn deliver(app: AppHandle, wav: Vec<u8>, generation: u64, seconds: f32) {
 
     println!("piplo: transcript — {raw}");
 
+    // Triggers are short and clean, so this is the check that usually fires. A
+    // hit skips grammar entirely, taking a network call out of the most repeated
+    // action in the app.
+    let expanded = snippets::expand(&app, &raw);
+
     // Read here rather than cached at startup, so flipping the toggle applies to
     // the very next dictation. Status stays Transcribing across both calls:
     // nothing on screen should reveal that there are two rather than one.
-    let cleaned = if settings::current(&app).grammar_enabled {
+    let cleaned = if expanded.is_none() && settings::current(&app).grammar_enabled {
         grammar::run(&key, &raw).await
     } else {
         None
@@ -227,11 +232,32 @@ async fn deliver(app: AppHandle, wav: Vec<u8>, generation: u64, seconds: f32) {
     }
 
     let corrected = cleaned.is_some();
-    let text = cleaned.unwrap_or_else(|| raw.clone());
+    let spoken = cleaned.unwrap_or_else(|| raw.clone());
 
     if corrected {
-        println!("piplo: cleaned — {text}");
+        println!("piplo: cleaned — {spoken}");
     }
+
+    // The second check, and only when cleanup happened: grammar sometimes fixes a
+    // trigger into matchability — "my e-mail" → "my email". Without it, a
+    // mishearing silently turns a snippet into a typed sentence.
+    let snippet = match expanded {
+        Some(content) => Some(content),
+        None if corrected => snippets::expand(&app, &spoken),
+        None => None,
+    };
+
+    let is_snippet = snippet.is_some();
+
+    // A match replaces the whole utterance: the user said a shorthand, not a
+    // sentence they wanted typed.
+    let text = match snippet {
+        Some(content) => {
+            println!("piplo: snippet — {content}");
+            content
+        }
+        None => spoken,
+    };
 
     // Blocking: it polls for modifiers and then paces the synthesised input.
     let typed = text.clone();
@@ -255,6 +281,7 @@ async fn deliver(app: AppHandle, wav: Vec<u8>, generation: u64, seconds: f32) {
     entry.language = transcription.language;
     entry.inserted = inserted;
     entry.corrected = corrected;
+    entry.snippet = is_snippet;
     history::append(&app, &entry);
 
     if let insert::Insert::Blocked(why) = outcome {

@@ -14,6 +14,15 @@ export interface HistoryEntry {
   /** Present only when grammar changed the transcript. Not shown in the UI. */
   raw_text?: string;
   corrected: boolean;
+  /** A snippet expansion. Not shown in the UI — see SNIPPETS.md. */
+  snippet: boolean;
+}
+
+/** Mirrors `snippets::Snippet`. An empty `id` means "this is new". */
+export interface Snippet {
+  id: string;
+  trigger: string;
+  content: string;
 }
 
 /** Mirrors `settings::Settings`. */
@@ -105,6 +114,27 @@ export function getHistory(): Promise<HistoryEntry[]> {
 
 export function clearHistory(): Promise<void> {
   return invoke("clear_history");
+}
+
+/** File order — oldest first, since snippets are appended as they are created. */
+export function listSnippets(): Promise<Snippet[]> {
+  return invoke("list_snippets");
+}
+
+/**
+ * Create and update both, keyed on `id`. Rejects with the message to show inside
+ * the form — an empty trigger, empty content, or a trigger another snippet
+ * already answers to.
+ *
+ * Returns the whole list, so the page replaces its state outright rather than
+ * patching it and hoping the two stay in step.
+ */
+export function saveSnippet(snippet: Snippet): Promise<Snippet[]> {
+  return invoke("save_snippet", { snippet });
+}
+
+export function deleteSnippet(id: string): Promise<Snippet[]> {
+  return invoke("delete_snippet", { id });
 }
 
 export function openHome(): Promise<void> {

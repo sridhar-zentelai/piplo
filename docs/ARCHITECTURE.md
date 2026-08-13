@@ -52,9 +52,19 @@ webview hangs, the pipeline still completes and the text still lands.
                         └────┬────┘
                              │ raw transcript
                              ▼
+                      ┌────────────┐
+                      │snippets.rs │  whole utterance a trigger?
+                      └────┬───────┘  hit → content, skip grammar
+                           │ miss
+                           ▼
                        ┌───────────┐
                        │grammar.rs │  chat completion, 2 s ceiling
                        └────┬──────┘  any failure → raw text
+                            │
+                            ▼
+                      ┌────────────┐
+                      │snippets.rs │  did the cleanup reveal a trigger?
+                      └────┬───────┘
                             │ final text
               ┌─────────────┴─────────────┐
               ▼                           ▼
@@ -84,6 +94,7 @@ Every stage runs off the UI thread. Network calls go on
 | `audio.rs` | cpal thread, sample buffer, RMS, downmix, WAV encode | Know why it's recording |
 | `groq.rs` | Transcription request and typed errors | Retry policy |
 | `grammar.rs` | Cleanup request, output validation, fail-soft | Return `Result` (returns `Option`) |
+| `snippets.rs` | Normalization, whole-utterance matching, `snippets.json` | Know when in the pipeline it is called |
 | `insert.rs` | Wait for modifiers, `SendInput` Unicode | Decide *what* to type |
 | `history.rs` | Append and read `history.jsonl` | Filter or search (the UI does) |
 | `settings.rs` | Load, validate, save `settings.json` | Apply settings (owners do) |
@@ -161,6 +172,9 @@ Typed wrappers live in `src/lib/commands.ts`. Nothing calls `invoke` directly.
 | `set_settings` | `Result<Settings, String>` | Settings page, menu toggle |
 | `get_history` | `Vec<Entry>` | Home page |
 | `clear_history` | `()` | Home page |
+| `list_snippets` | `Vec<Snippet>` | Snippets page |
+| `save_snippet` | `Result<Vec<Snippet>, String>` | Snippets page — create and update both |
+| `delete_snippet` | `Result<Vec<Snippet>, String>` | Snippets page |
 | `open_home` | `()` | Tray, menu |
 | `show_widget_menu` | `()` | Right-click on the widget |
 | `quit` | never | Tray, menu |
@@ -194,9 +208,15 @@ avoids three Vite entry points and three HTML files.
 }
 ```
 
-History and settings are **not** in the store. They are fetched by the pages
-that show them (`useHistory`, and local state in `SettingsPage`) — putting
-machine state that only one window reads into a global store buys nothing.
+History, snippets and settings are **not** in the store. They are fetched by the
+pages that show them (`useHistory`, and local state in `SnippetsPage` and
+`SettingsPage`) — putting machine state that only one window reads into a global
+store buys nothing.
+
+Snippets have a second copy in Rust — `SnippetsState`, which the pipeline reads
+on every dictation. That is the authoritative one. The page's copy is a view, and
+every mutation replaces it with whatever the backend returns rather than patching
+it locally.
 
 ---
 

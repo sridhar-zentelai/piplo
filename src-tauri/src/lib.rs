@@ -9,6 +9,7 @@ mod platform;
 mod session;
 mod settings;
 mod shortcut;
+mod snippets;
 mod tray;
 mod widget;
 
@@ -61,6 +62,9 @@ pub fn run() {
             credentials::clear_api_key,
             history::get_history,
             history::clear_history,
+            snippets::list_snippets,
+            snippets::save_snippet,
+            snippets::delete_snippet,
             tray::open_home,
             menu::show_widget_menu,
             menu::hide_widget_menu,
@@ -77,6 +81,10 @@ pub fn run() {
             app.manage(settings::Store::new(saved));
 
             app.manage(credentials::Store::new(credentials::load(handle)));
+
+            // The authoritative list — the pipeline reads it on every dictation.
+            // A corrupt file loads as none rather than failing the launch.
+            app.manage(snippets::Store::new(snippets::load(handle)));
 
             if credentials::current(handle).is_none() {
                 eprintln!("piplo: no Groq API key — set one in Settings, or via GROQ_API_KEY");

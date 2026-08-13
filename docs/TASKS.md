@@ -183,10 +183,62 @@ Each step below works with the next one stubbed, so each is visible on its own.
   icon.
   **And:** the Notepad focus test from 1.2, on the menu this time.
 
+## M6 — Snippets
+
+The matching rules are pure functions, so the first task is testable with no UI
+and no pipeline wiring at all.
+
+- [ ] **6.1 — Matching, proven by tests**
+  `snippets.rs`: the `Snippet` struct, `normalize`, and `match_trigger`. Nothing
+  else — no state, no commands, no file. Port Saylo's four test cases:
+  case/padding/punctuation, whole-utterance-only, empty input, and picking the
+  right one out of several.
+  **See:** `cargo test` green, including "send my email to Bob" **not** matching.
+  That one case is the whole feature's trustworthiness.
+
+- [ ] **6.2 — Snippets survive a restart**
+  `SnippetsState`, `load` at startup, `commit` (write to disk, *then* adopt), and
+  the three commands with their validation — empty trigger, empty content, and
+  the normalized clash check that excludes the row being edited.
+  **See:** create one from the devtools console, restart, `list_snippets` still
+  returns it. Then make `snippets.json` read-only and save again: an error, and
+  nothing changed.
+
+- [ ] **6.3 — Saying it types it**
+  The two calls in `session::deliver` — on the raw transcript before grammar, on
+  the cleaned text after. Log `"snippet": true` in the JSONL.
+  **See:** with a `my email` snippet saved, dictate "my email" into Notepad and
+  get the address.
+  **Then:** dictate "send my email to Bob" and get the sentence. If the address
+  appears, the match isn't whole-utterance and 6.1's test is lying.
+  **And:** the log shows one network call for the hit, not two.
+
+- [ ] **6.4 — The page lists and edits them**
+  `SnippetsPage.tsx` + `SnippetRow.tsx` + the third sidebar entry. Edit in place
+  in the row, not a dialog. Inline delete confirm. A rejected save shows inside
+  the form, next to the field.
+  **Reuse, don't rebuild:** `Pagination.tsx`, the empty-state container, the list
+  wrapper and the fixed-column row grid all come from the history page — extract
+  them where they're still inline.
+  **See:** create, edit and delete three snippets without touching the console.
+  Nothing in the row shifts when the actions appear on hover.
+
+- [ ] **6.5 — It behaves with real amounts of data**
+  Search, sort (Newest / Oldest / A–Z), pagination, and both empty states.
+  **See:** 21 snippets, go to page 2, delete the only row on it — you land on
+  page 1, not an empty page. Search then sort then paginate, and the `n of m`
+  readout always agrees with the rows on screen.
+  **Then:** delete them all. The empty state explains what a snippet is to
+  someone who has never seen one, and never flashes while still loading.
+
+> Fourteen checks in [SNIPPETS.md](SNIPPETS.md#checks). Numbers 3 and 9 —
+> whole-utterance matching and the failed write — are the two that make the
+> feature safe to keep.
+
 ## Done
 
-- [ ] **6.1 — The full sweep**
-  Every check in [MVP_PLAN.md](MVP_PLAN.md), M1 through M5, in one sitting on a
+- [ ] **7.1 — The full sweep**
+  Every check in [MVP_PLAN.md](MVP_PLAN.md), M1 through M6, in one sitting on a
   release build.
   **See:** a list of what failed. Fix those, then Piplo is finished.
 
