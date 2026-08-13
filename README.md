@@ -13,12 +13,13 @@ hold Ctrl+Space  →  speak  →  release
                     text typed at your caret, and logged
 ```
 
-Four features, on purpose:
+Five features, on purpose:
 
 - **Transcribe** — global shortcut, floating widget, text at the caret
 - **Grammar** — automatic cleanup before typing; never rewords, never blocks
 - **Home** — a window listing every past dictation, newest first
 - **Settings** — shortcut, grammar on/off, widget visible
+- **Snippets** — say "my email" and Piplo types your address instead
 
 Nothing else. See [CLAUDE.md](CLAUDE.md#do-not-implement) for the list of things
 that are deliberately not here.
@@ -27,11 +28,15 @@ that are deliberately not here.
 
 ## Requirements
 
-- Windows 10/11
+- Windows 10/11, or macOS 11 (Big Sur) and later
 - [Bun](https://bun.sh)
-- [Rust](https://rustup.rs) (stable, MSVC toolchain)
-- WebView2 (preinstalled on Windows 11)
+- [Rust](https://rustup.rs) (stable; MSVC toolchain on Windows)
+- WebView2 on Windows (preinstalled on Windows 11)
 - A [Groq API key](https://console.groq.com/keys)
+
+**Installing a built Mac app?** [INSTALL.md](INSTALL.md) is the guide to send
+with it — macOS needs four permissions granted before Piplo can type, and one of
+them fails silently. Porting notes are in [docs/MACOS.md](docs/MACOS.md).
 
 ## Setup
 
@@ -76,7 +81,11 @@ gitignored; `.env.example` holds the names.
 | What | Where |
 | ---- | ----- |
 | Dictation history | `history/history.jsonl` in the repo, **gitignored** |
-| Settings | `settings.json` in `%APPDATA%\com.codea.piplo` |
+| Settings | `settings.json` in the app config dir |
+| Snippets | `snippets.json`, beside `settings.json` |
+
+The app config dir is `%APPDATA%\com.codea.piplo` on Windows and
+`~/Library/Application Support/com.codea.piplo` on macOS.
 
 History sits inside the repository so it is easy to open and grep during
 development, but `history/` is in `.gitignore` — the file contains everything you
@@ -100,4 +109,5 @@ does not follow you to another machine.
 | [docs/TRANSCRIBE.md](docs/TRANSCRIBE.md) | Capture → Groq → keystrokes |
 | [docs/GRAMMAR.md](docs/GRAMMAR.md) | The cleanup step and its guardrails |
 | [docs/HOME.md](docs/HOME.md) | Home window and history |
+| [docs/SNIPPETS.md](docs/SNIPPETS.md) | Spoken triggers → canned text |
 | [docs/SETTINGS.md](docs/SETTINGS.md) | The three settings |

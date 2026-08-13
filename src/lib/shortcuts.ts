@@ -33,22 +33,35 @@ export type Capture =
   | { status: "unsupported"; code: string }
   | { status: "chord"; chord: Chord };
 
-export const DEFAULT_SHORTCUT = "Ctrl+Space";
+/**
+ * Which platform's rules to present.
+ *
+ * Read from the user agent rather than fetched from Rust because this governs
+ * only what the recorder *offers*. `shortcut::reject_reserved` is the actual
+ * gate: a chord that gets past this still comes back as an error from
+ * `set_settings`, so the two disagreeing is a cosmetic bug, not a broken
+ * binding.
+ */
+export const IS_MAC = /Mac/i.test(navigator.userAgent);
+
+/** Mirrors `shortcut::DEFAULT_ACCELERATOR`, which is the source of truth. */
+export const DEFAULT_SHORTCUT = IS_MAC ? "Cmd+Shift+Space" : "Ctrl+Space";
 
 /** Ctrl first so chords read the way Windows writes them. */
 const MOD_ORDER: Modifier[] = ["Ctrl", "Alt", "Shift", "Super"];
 
 /**
  * Modifier spellings `parse_hotkey` accepts, uppercased.
- * `CommandOrControl` resolves to Ctrl here because Piplo is Windows-only.
+ * `CommandOrControl` resolves to whichever key the platform actually means.
  */
 const MODIFIER_TOKENS: Record<string, Modifier> = {
   CTRL: "Ctrl",
   CONTROL: "Ctrl",
-  COMMANDORCONTROL: "Ctrl",
-  COMMANDORCTRL: "Ctrl",
-  CMDORCTRL: "Ctrl",
-  CMDORCONTROL: "Ctrl",
+  // The whole point of the token: Cmd on a Mac, Ctrl everywhere else.
+  COMMANDORCONTROL: IS_MAC ? "Super" : "Ctrl",
+  COMMANDORCTRL: IS_MAC ? "Super" : "Ctrl",
+  CMDORCTRL: IS_MAC ? "Super" : "Ctrl",
+  CMDORCONTROL: IS_MAC ? "Super" : "Ctrl",
   ALT: "Alt",
   OPTION: "Alt",
   SHIFT: "Shift",
@@ -279,20 +292,38 @@ export function chordFromEvent(event: KeyEventLike): Capture {
 }
 
 /**
- * Why this chord cannot be bound, or `null` if it can.
+ * Why this chord cannot be bound, or `null` if it can. Mirrors
+ * `shortcut::reject_reserved`, which is the binding gate.
  *
- * The Windows key is refused outright. `RegisterHotKey` reports success for
- * combinations the shell has already claimed — `Ctrl+Win+D` and friends — and
- * then never fires, so the shortcut looks bound and silently does nothing,
- * which is worse than being told no. The reserved set is undocumented and grows
- * with each Windows release, so allowing "the rest" would be guesswork.
+ * On Windows the Windows key is refused outright: `RegisterHotKey` reports
+ * success for combinations the shell has already claimed — `Ctrl+Win+D` and
+ * friends — and then never fires, so the shortcut looks bound and silently does
+ * nothing, which is worse than being told no. The reserved set is undocumented
+ * and grows with each Windows release, so allowing "the rest" would be guesswork.
+ *
+ * On macOS the same key is Cmd, the ordinary modifier. Refusing it would rule out
+ * most of what a Mac user reaches for — including Piplo's own default shortcut.
+ * `RegisterEventHotKey` reports a real error on a conflict rather than pretending,
+ * so only the two chords that are pure muscle memory are refused here.
  */
 export function blockedReason(chord: Chord): string | null {
-  if (chord.mods.includes("Super")) {
+  const superKey = chord.mods.includes("Super");
+
+  if (IS_MAC) {
+    if (superKey && chord.code === "Space" && chord.mods.length === 1) {
+      return "Cmd+Space is Spotlight. Try adding Shift.";
+    }
+    if (superKey && chord.code === "Tab") {
+      return "Cmd+Tab switches apps — macOS keeps that one.";
+    }
+  } else if (superKey) {
     return "The Windows key can't be used — Windows reserves these combinations and would swallow the shortcut without telling you.";
   }
+
   if (chord.mods.length === 0) {
-    return "Add Ctrl, Alt or Shift — a key on its own would fire in every app as you typed.";
+    return IS_MAC
+      ? "Add Cmd, Control, Option or Shift — a key on its own would fire in every app as you typed."
+      : "Add Ctrl, Alt or Shift — a key on its own would fire in every app as you typed.";
   }
   return null;
 }
@@ -309,8 +340,11 @@ export function warningFor(accelerator: string): string | null {
   // Windows treats Ctrl+Alt as AltGr, so binding it takes over every AltGr
   // character (€, most accented letters) in every app. Only layouts that have
   // the key are affected, so this is a warning and not a refusal.
+  //
+  // macOS has no AltGr — Option composes accents on its own — so the warning
+  // would simply be untrue there.
   const { mods } = parsed.chord;
-  if (mods.includes("Ctrl") && mods.includes("Alt")) {
+  if (!IS_MAC && mods.includes("Ctrl") && mods.includes("Alt")) {
     return "Ctrl+Alt is AltGr on many keyboard layouts. Binding it will take over the accented characters typed with AltGr.";
   }
   return null;

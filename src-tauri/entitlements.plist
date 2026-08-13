@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Applied when the macOS bundle is signed. Notarisation requires the hardened
+  runtime, and the hardened runtime blocks microphone access unless it is asked
+  for here — so an unsigned build that records fine can stop recording the day
+  it is signed.
+
+  Deliberately no App Sandbox entitlement. Piplo types into other applications
+  with CGEvent, which the sandbox forbids, so the Mac App Store is not a
+  distribution route and a signed, notarised .dmg is.
+-->
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.device.audio-input</key>
+  <true/>
+</dict>
+</plist>

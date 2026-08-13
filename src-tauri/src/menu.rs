@@ -8,14 +8,7 @@ use std::time::Duration;
 
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition};
 
-#[cfg(windows)]
-use windows::Win32::{
-    Foundation::POINT,
-    UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_ESCAPE, VK_LBUTTON, VK_RBUTTON},
-    UI::WindowsAndMessaging::GetCursorPos,
-};
-
-use crate::widget;
+use crate::{platform, widget};
 
 pub const LABEL: &str = "menu";
 
@@ -78,7 +71,7 @@ fn place(app: &AppHandle, window: &tauri::WebviewWindow) {
         return;
     };
 
-    let Some(work) = widget::work_area(&widget_window) else {
+    let Some(work) = platform::work_area(&widget_window) else {
         return;
     };
 
@@ -104,29 +97,31 @@ fn place(app: &AppHandle, window: &tauri::WebviewWindow) {
     }
 }
 
-/// `WS_EX_NOACTIVATE` means the menu never receives focus, so there is no blur
-/// event and no keyboard input — `Escape` and outside clicks both have to be
-/// polled.
+/// The menu never receives focus — `WS_EX_NOACTIVATE` on Windows, a
+/// non-activating panel on macOS — so there is no blur event and no keyboard
+/// input. `Escape` and outside clicks both have to be polled.
 ///
 /// Deliberately not solved with a full-screen transparent overlay to catch the
 /// click: that swallows the first click intended for the app underneath, which is
 /// the click the user actually wanted.
-#[cfg(windows)]
+///
+/// Runs on its own thread, which is why every `platform` call it makes is one of
+/// the thread-safe ones.
 fn watch_for_dismissal(app: AppHandle) {
     std::thread::spawn(move || {
         let open = || app.state::<MenuOpen>().0.load(Ordering::SeqCst);
 
         // Wait out the click that opened the menu, or it would dismiss itself.
-        while mouse_down() && open() {
+        while platform::mouse_down() && open() {
             std::thread::sleep(POLL);
         }
 
         while open() {
-            if key_down(VK_ESCAPE.0) {
+            if platform::escape_down() {
                 break;
             }
 
-            if mouse_down() && !cursor_over_menu(&app) {
+            if platform::mouse_down() && !cursor_over_menu(&app) {
                 break;
             }
 
@@ -139,21 +134,6 @@ fn watch_for_dismissal(app: AppHandle) {
     });
 }
 
-#[cfg(not(windows))]
-fn watch_for_dismissal(_app: AppHandle) {}
-
-#[cfg(windows)]
-fn key_down(vk: u16) -> bool {
-    // The high bit is "physically down"; the low bit would be a false positive.
-    unsafe { (GetAsyncKeyState(vk as i32) as u16 & 0x8000) != 0 }
-}
-
-#[cfg(windows)]
-fn mouse_down() -> bool {
-    key_down(VK_LBUTTON.0) || key_down(VK_RBUTTON.0)
-}
-
-#[cfg(windows)]
 fn cursor_over_menu(app: &AppHandle) -> bool {
     let Some(window) = app.get_webview_window(LABEL) else {
         return false;
@@ -163,18 +143,16 @@ fn cursor_over_menu(app: &AppHandle) -> bool {
         return false;
     };
 
-    let mut point = POINT::default();
-
-    if unsafe { GetCursorPos(&mut point) }.is_err() {
-        // Treat an unknown cursor as inside, so a failed read cannot dismiss the
-        // menu out from under the user.
+    // An unknown cursor counts as inside, so a failed read cannot dismiss the
+    // menu out from under the user.
+    let Some((x, y)) = platform::cursor_position() else {
         return true;
-    }
+    };
 
-    point.x >= position.x
-        && point.x < position.x + size.width as i32
-        && point.y >= position.y
-        && point.y < position.y + size.height as i32
+    x >= position.x
+        && x < position.x + size.width as i32
+        && y >= position.y
+        && y < position.y + size.height as i32
 }
 
 #[tauri::command]

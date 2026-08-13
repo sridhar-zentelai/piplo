@@ -1,6 +1,6 @@
 # Build Plan
 
-Five milestones. Each one is independently verifiable — do not start the next
+Six milestones. Each one is independently verifiable — do not start the next
 until the current one passes its checks. The order is chosen so that the riskiest
 native work (focus, keystrokes) is proven before any UI is built on top of it.
 
@@ -11,6 +11,7 @@ native work (focus, keystrokes) is proven before any UI is built on top of it.
 | M3 | [Grammar](#m3--grammar) | Automatic cleanup before typing | [GRAMMAR.md](GRAMMAR.md) |
 | M4 | [Home](#m4--home) | History list + settings | [HOME.md](HOME.md), [SETTINGS.md](SETTINGS.md) |
 | M5 | [Right-click menu](#m5--right-click-menu) | The widget's menu | [WIDGET.md](WIDGET.md#right-click-menu) |
+| M6 | [Snippets](#m6--snippets) | Spoken triggers → canned text, and their page | [SNIPPETS.md](SNIPPETS.md) |
 
 ---
 
@@ -183,9 +184,39 @@ Items: *Dictate* · *Grammar correction* (toggle) · *Open Piplo* · *Quit*.
 
 ---
 
+## M6 — Snippets
+
+Say a saved trigger on its own and Piplo types the canned text instead. Detail in
+[SNIPPETS.md](SNIPPETS.md).
+
+Build order — the matching rules are pure functions, so they are testable before
+any UI exists:
+
+1. `snippets.rs` — `normalize` and `match_trigger`, with the unit tests. No
+   wiring yet
+2. Load, save, `commit` (write then adopt), and the three commands
+3. The two calls in `session::deliver` — on raw before grammar, on cleaned after
+4. `SnippetsPage.tsx` + `SnippetRow.tsx`, reusing the pagination control, the
+   empty-state container and the row grid from the history page
+5. The third sidebar entry
+
+**Checks** — the full list is in
+[SNIPPETS.md](SNIPPETS.md#checks). The four that matter most:
+
+1. **Whole utterance only.** "send my email to Bob" types the sentence, not the
+   address. Substring matching would make the feature untrustworthy in documents.
+2. **Clash is refused.** "My Email" and "my email" cannot both exist, and editing
+   a row without changing its trigger still saves.
+3. **A failed write changes nothing.** Make `snippets.json` read-only and try to
+   save: an error, and the list is unchanged — including after a restart.
+4. **Corrupt `snippets.json` by hand** → the app starts, the page is empty, and
+   dictation still works.
+
+---
+
 ## Done
 
-Piplo is finished when M1–M5 pass. The [do-not-implement
+Piplo is finished when M1–M6 pass. The [do-not-implement
 list](../CLAUDE.md#do-not-implement) is not a backlog — it is the boundary.
 
 ## Deliberate gaps

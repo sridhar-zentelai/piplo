@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Merged into the generated Info.plist for macOS bundles. Ignored on Windows.
+
+  NSMicrophoneUsageDescription is not optional: macOS terminates a process that
+  touches the microphone without one, so its absence is a crash on the first
+  dictation rather than a denied permission. The string is what the user reads
+  in the permission dialog, so it says where the audio goes.
+-->
+<plist version="1.0">
+<dict>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Piplo records your voice while you hold the dictation shortcut, and sends it to Groq to be transcribed.</string>
+</dict>
+</plist>

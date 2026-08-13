@@ -2,9 +2,10 @@ import { useState } from "react";
 import Sidebar, { type Page } from "@/components/Sidebar";
 import HomePage from "@/pages/HomePage";
 import SettingsPage from "@/pages/SettingsPage";
+import SnippetsPage from "@/pages/SnippetsPage";
 
 /**
- * No router. Two views with no URLs and no deep linking would make a router an
+ * No router. Three views with no URLs and no deep linking would make a router an
  * abstraction with a single call site.
  */
 export default function DesktopWindow() {
@@ -14,7 +15,13 @@ export default function DesktopWindow() {
     <div className="flex h-full bg-[#141414] text-foreground">
       <Sidebar page={page} onNavigate={setPage} />
       <main className="flex min-w-0 flex-1 flex-col">
-        {page === "home" ? <HomePage /> : <SettingsPage />}
+        {page === "home" ? (
+          <HomePage />
+        ) : page === "snippets" ? (
+          <SnippetsPage />
+        ) : (
+          <SettingsPage />
+        )}
       </main>
     </div>
   );

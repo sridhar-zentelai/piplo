@@ -3,14 +3,16 @@ import {
   Clock,
   PanelLeftClose,
   PanelLeftOpen,
+  Replace,
   Settings as SettingsIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export type Page = "home" | "settings";
+export type Page = "home" | "snippets" | "settings";
 
 const NAV: { id: Page; label: string; icon: typeof Clock }[] = [
   { id: "home", label: "Home", icon: Clock },
+  { id: "snippets", label: "Snippets", icon: Replace },
   { id: "settings", label: "Settings", icon: SettingsIcon },
 ];
 

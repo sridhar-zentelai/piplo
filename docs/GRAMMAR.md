@@ -147,6 +147,11 @@ against real failures rather than guesses.
 saves the round trip on the short "yes", "next", "delete that" dictations —
 exactly where latency is most noticeable.
 
+Also skipped when the raw transcript is already a
+[snippet trigger](SNIPPETS.md#where-it-sits-in-the-pipeline) — the text is being
+replaced wholesale, so there is nothing to clean up. The trigger is checked again
+*after* grammar for the case where cleanup is what makes it match.
+
 ---
 
 ## Wiring in

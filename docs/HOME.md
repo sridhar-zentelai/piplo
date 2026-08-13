@@ -14,7 +14,8 @@ back.
 │  ◉  Piplo    │                          142 dictations  ⌫   │
 │              │  ┌────────────────────────────────────────┐  │
 │  ⌂  Home     │  │ So I think we should ship it Monday…   │  │
-│  ⚙  Settings │  │ 2 minutes ago · 4.2s · en          ⧉  │  │
+│  ⧉  Snippets │  │ 2 minutes ago · 4.2s · en          ⧉  │  │
+│  ⚙  Settings │  │                                        │  │
 │              │  ├────────────────────────────────────────┤  │
 │              │  │ Can you send me the deck when you…     │  │
 │              │  │ 18 minutes ago · 6.8s · en         ⧉  │  │
@@ -23,9 +24,10 @@ back.
 └──────────────┴──────────────────────────────────────────────┘
 ```
 
-Two pages, one sidebar. No router — `DesktopWindow.tsx` holds a
-`useState<"home" | "settings">`. A router for two views with no URLs and no deep
-linking would be an abstraction with a single call site.
+Three pages, one sidebar — Home, [Snippets](SNIPPETS.md#the-page), Settings. No
+router: `DesktopWindow.tsx` holds a `useState<"home" | "snippets" | "settings">`.
+A router for three views with no URLs and no deep linking would be an abstraction
+with a single call site.
 
 ---
 
@@ -35,11 +37,18 @@ linking would be an abstraction with a single call site.
 | --------- | -------------- |
 | `DesktopWindow.tsx` | Shell, page state, sidebar + content split |
 | `HomeHero.tsx` | Greeting, the live shortcut, status, three stat tiles |
-| `Pagination.tsx` | Page cursor for the history list |
-| `Sidebar.tsx` | Brand mark, two nav entries, version at the bottom |
+| `Pagination.tsx` | Page cursor. **Shared with the snippets list** |
+| `Sidebar.tsx` | Brand mark, three nav entries, version at the bottom |
 | `HomePage.tsx` | The list, the count, clear-all |
 | `HistoryRow.tsx` | One entry |
+| `SnippetsPage.tsx` | See [SNIPPETS.md](SNIPPETS.md#the-page) |
 | `SettingsPage.tsx` | See [SETTINGS.md](SETTINGS.md) |
+
+Several elements are shared with the snippets page rather than built twice — the
+pagination control, the empty-state container, the list wrapper, and the
+fixed-column row grid. The full list is in
+[SNIPPETS.md](SNIPPETS.md#shared-with-the-history-page); change either page's copy
+and you change both.
 
 Sidebar is a fixed 200 px; the content area scrolls. `minWidth: 520`,
 `minHeight: 400` in the window config so the split cannot be squeezed into
@@ -88,7 +97,7 @@ build if you get it wrong.
 
 `raw_text` is not shown. It is in the file for auditing the
 [grammar step](GRAMMAR.md#logging-both-versions), not for the user to compare
-side by side — that would be a diff viewer, which is not one of the four
+side by side — that would be a diff viewer, which is not one of the five
 features.
 
 ### Loading

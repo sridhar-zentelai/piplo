@@ -8,11 +8,7 @@ use tauri::{
     AppHandle, LogicalSize, Manager, PhysicalPosition, PhysicalSize, State, WebviewWindow,
 };
 
-#[cfg(windows)]
-use windows::Win32::{
-    Foundation::{HWND, RECT},
-    Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST},
-};
+use crate::platform::{self, Rect};
 
 pub const LABEL: &str = "widget";
 
@@ -119,7 +115,7 @@ pub fn keep_on_screen(window: &WebviewWindow) {
         return;
     };
 
-    let Some(work) = work_area(window) else {
+    let Some(work) = platform::work_area(window) else {
         return;
     };
 
@@ -141,7 +137,7 @@ fn target_position(window: &WebviewWindow) -> Option<PhysicalPosition<i32>> {
         }
     };
 
-    let work = work_area(window)?;
+    let work = platform::work_area(window)?;
     let saved = *window.state::<Placement>().lock();
 
     let position = match saved {
@@ -168,7 +164,7 @@ fn target_position(window: &WebviewWindow) -> Option<PhysicalPosition<i32>> {
 fn clamp(
     position: PhysicalPosition<i32>,
     size: PhysicalSize<u32>,
-    work: RECT,
+    work: Rect,
 ) -> PhysicalPosition<i32> {
     let max_x = (work.right - size.width as i32).max(work.left);
     let max_y = (work.bottom - size.height as i32).max(work.top);
@@ -177,40 +173,6 @@ fn clamp(
         position.x.clamp(work.left, max_x),
         position.y.clamp(work.top, max_y),
     )
-}
-
-/// The monitor's work area — `rcWork`, which excludes the taskbar. `rcMonitor`
-/// would put the chip behind it on a default Windows setup.
-#[cfg(windows)]
-pub fn work_area(window: &WebviewWindow) -> Option<RECT> {
-    let hwnd = match window.hwnd() {
-        Ok(hwnd) => HWND(hwnd.0),
-        Err(err) => {
-            eprintln!("piplo: no HWND for widget: {err}");
-            return None;
-        }
-    };
-
-    let mut info = MONITORINFO {
-        cbSize: std::mem::size_of::<MONITORINFO>() as u32,
-        ..Default::default()
-    };
-
-    // The monitor the widget is on, not the primary one.
-    let monitor = unsafe { MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST) };
-    let ok = unsafe { GetMonitorInfoW(monitor, &mut info) };
-
-    if ok.as_bool() {
-        Some(info.rcWork)
-    } else {
-        eprintln!("piplo: GetMonitorInfoW failed");
-        None
-    }
-}
-
-#[cfg(not(windows))]
-pub fn work_area(_window: &WebviewWindow) -> Option<RECT> {
-    None
 }
 
 /// Read once at startup. A missing or unreadable file just means "never

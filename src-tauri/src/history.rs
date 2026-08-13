@@ -30,6 +30,11 @@ pub struct Entry {
     pub raw_text: Option<String>,
     /// Whether grammar won, or the fallback did.
     pub corrected: bool,
+    /// A snippet expansion — `text` is the canned content, `raw_text` the
+    /// trigger. Not shown in the UI; it is here so the feature's real-world
+    /// behaviour is greppable. `default` so lines written before it still load.
+    #[serde(default)]
+    pub snippet: bool,
 }
 
 impl Entry {
@@ -47,6 +52,7 @@ impl Entry {
             text,
             raw_text,
             corrected: false,
+            snippet: false,
         }
     }
 }

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Trash2 } from "lucide-react";
+import EmptyState from "@/components/EmptyState";
 import HistoryRow from "@/components/HistoryRow";
 import HomeHero from "@/components/HomeHero";
 import MicIcon from "@/components/MicIcon";
@@ -105,7 +106,11 @@ export default function HomePage() {
 
       <div className="mx-auto w-full max-w-3xl flex-1 px-6 pb-4">
         {loading ? null : entries.length === 0 ? (
-          <EmptyState />
+          <EmptyState
+            icon={MicIcon}
+            title="No dictations yet"
+            hint="Hold your shortcut and speak — the text lands wherever your caret is."
+          />
         ) : (
           <ul className="flex flex-col gap-2">
             {visible.map((entry) => (
@@ -131,16 +136,3 @@ export default function HomePage() {
   );
 }
 
-function EmptyState() {
-  return (
-    <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
-      <MicIcon className="size-8 text-muted-foreground/40" />
-      <p className="font-sans text-sm text-muted-foreground">
-        No dictations yet
-      </p>
-      <p className="font-sans text-xs text-muted-foreground/70">
-        Hold your shortcut and speak — the text lands wherever your caret is.
-      </p>
-    </div>
-  );
-}
