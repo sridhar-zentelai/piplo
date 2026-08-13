@@ -69,13 +69,20 @@ pub struct Transcription {
     pub duration: Option<f64>,
 }
 
-pub async fn transcribe(api_key: &str, wav: Vec<u8>) -> Result<Transcription, GroqError> {
+/// `hint` is the user's vocabulary as a comma list. Absent — not empty — when
+/// there is nothing to hint at: an empty `prompt` field is still a field Whisper
+/// conditions on.
+pub async fn transcribe(
+    api_key: &str,
+    wav: Vec<u8>,
+    hint: Option<String>,
+) -> Result<Transcription, GroqError> {
     let part = reqwest::multipart::Part::bytes(wav)
         .file_name("audio.wav")
         .mime_str("audio/wav")
         .map_err(|err| GroqError::Network(err.to_string()))?;
 
-    let form = reqwest::multipart::Form::new()
+    let mut form = reqwest::multipart::Form::new()
         .part("file", part)
         .text("model", MODEL)
         // Piplo is English-only for now. Left to auto-detect, Whisper reads a
@@ -85,6 +92,11 @@ pub async fn transcribe(api_key: &str, wav: Vec<u8>) -> Result<Transcription, Gr
         .text("language", LANGUAGE)
         .text("temperature", "0")
         .text("response_format", "verbose_json");
+
+    if let Some(hint) = hint {
+        println!("piplo: vocabulary hint — {hint}");
+        form = form.text("prompt", hint);
+    }
 
     let client = reqwest::Client::builder()
         .timeout(TIMEOUT)

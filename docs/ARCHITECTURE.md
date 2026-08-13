@@ -49,9 +49,14 @@ webview hangs, the pipeline still completes and the text still lands.
                              ▼
                         ┌─────────┐
                         │ groq.rs │  whisper-large-v3-turbo
-                        └────┬────┘
+                        └────┬────┘  + terms as a prompt hint
                              │ raw transcript
                              ▼
+                     ┌──────────────┐
+                     │vocabulary.rs │  variants → terms, deterministic
+                     └────┬─────────┘
+                          │
+                          ▼
                       ┌────────────┐
                       │snippets.rs │  whole utterance a trigger?
                       └────┬───────┘  hit → content, skip grammar
@@ -62,6 +67,11 @@ webview hangs, the pipeline still completes and the text still lands.
                        └────┬──────┘  any failure → raw text
                             │
                             ▼
+                     ┌──────────────┐
+                     │vocabulary.rs │  did the cleanup undo it?
+                     └────┬─────────┘
+                          │
+                          ▼
                       ┌────────────┐
                       │snippets.rs │  did the cleanup reveal a trigger?
                       └────┬───────┘
@@ -73,6 +83,10 @@ webview hangs, the pipeline still completes and the text still lands.
         │ SendInput │              │  append    │
         └───────────┘              └────────────┘
 ```
+
+`learn.rs` is deliberately **not** on this diagram. It is driven by a command
+from the home window when a user edits a history row, never by the pipeline. A
+bug in the learner cannot cost anyone a dictation.
 
 Every stage runs off the UI thread. Network calls go on
 `tauri::async_runtime::spawn`; `insert.rs` is blocking and goes on
@@ -95,6 +109,8 @@ Every stage runs off the UI thread. Network calls go on
 | `groq.rs` | Transcription request and typed errors | Retry policy |
 | `grammar.rs` | Cleanup request, output validation, fail-soft | Return `Result` (returns `Option`) |
 | `snippets.rs` | Normalization, whole-utterance matching, `snippets.json` | Know when in the pipeline it is called |
+| `vocabulary.rs` | Variant → term replacement, the prompt hint, `vocabulary.json` | Decide what belongs in the list |
+| `learn.rs` | Candidate extraction, the eligibility filter, `corrections.jsonl` | Run in the dictation path |
 | `insert.rs` | Wait for modifiers, `SendInput` Unicode | Decide *what* to type |
 | `history.rs` | Append and read `history.jsonl` | Filter or search (the UI does) |
 | `settings.rs` | Load, validate, save `settings.json` | Apply settings (owners do) |
@@ -175,6 +191,13 @@ Typed wrappers live in `src/lib/commands.ts`. Nothing calls `invoke` directly.
 | `list_snippets` | `Vec<Snippet>` | Snippets page |
 | `save_snippet` | `Result<Vec<Snippet>, String>` | Snippets page — create and update both |
 | `delete_snippet` | `Result<Vec<Snippet>, String>` | Snippets page |
+| `list_vocabulary` | `Vec<Entry>` | Vocabulary page |
+| `save_term` | `Result<Vec<Entry>, String>` | Vocabulary page — create and update both |
+| `delete_term` | `Result<Vec<Entry>, String>` | Vocabulary page |
+| `list_suggestions` | `Vec<Suggestion>` | Vocabulary page |
+| `accept_suggestion` | `Result<Vec<Entry>, String>` | Vocabulary page |
+| `reject_suggestion` | `Result<Vec<Suggestion>, String>` | Vocabulary page |
+| `record_correction` | `Result<Option<Learned>, String>` | History row, on save |
 | `open_home` | `()` | Tray, menu |
 | `show_widget_menu` | `()` | Right-click on the widget |
 | `quit` | never | Tray, menu |
@@ -208,15 +231,15 @@ avoids three Vite entry points and three HTML files.
 }
 ```
 
-History, snippets and settings are **not** in the store. They are fetched by the
-pages that show them (`useHistory`, and local state in `SnippetsPage` and
-`SettingsPage`) — putting machine state that only one window reads into a global
-store buys nothing.
+History, snippets, vocabulary and settings are **not** in the store. They are
+fetched by the pages that show them (`useHistory`, and local state in
+`SnippetsPage`, `VocabularyPage` and `SettingsPage`) — putting machine state that
+only one window reads into a global store buys nothing.
 
-Snippets have a second copy in Rust — `SnippetsState`, which the pipeline reads
-on every dictation. That is the authoritative one. The page's copy is a view, and
-every mutation replaces it with whatever the backend returns rather than patching
-it locally.
+Snippets and vocabulary each have a second copy in Rust — `snippets::Store` and
+`vocabulary::Store`, which the pipeline reads on every dictation. Those are the
+authoritative ones. The pages' copies are views, and every mutation replaces them
+with whatever the backend returns rather than patching them locally.
 
 ---
 

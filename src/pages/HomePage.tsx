@@ -114,7 +114,11 @@ export default function HomePage() {
         ) : (
           <ul className="flex flex-col gap-2">
             {visible.map((entry) => (
-              <HistoryRow key={entry.id} entry={entry} />
+              <HistoryRow
+                key={entry.id}
+                entry={entry}
+                onCorrected={() => void refresh()}
+              />
             ))}
           </ul>
         )}

@@ -13,13 +13,14 @@ hold Ctrl+Space  →  speak  →  release
                     text typed at your caret, and logged
 ```
 
-Five features, on purpose:
+Six features, on purpose:
 
 - **Transcribe** — global shortcut, floating widget, text at the caret
 - **Grammar** — automatic cleanup before typing; never rewords, never blocks
 - **Home** — a window listing every past dictation, newest first
-- **Settings** — shortcut, grammar on/off, widget visible
+- **Settings** — shortcut, grammar on/off, widget visible, learn from corrections
 - **Snippets** — say "my email" and Piplo types your address instead
+- **Vocabulary** — the words it keeps getting wrong. Correct it once, it remembers
 
 Nothing else. See [CLAUDE.md](CLAUDE.md#do-not-implement) for the list of things
 that are deliberately not here.
@@ -83,6 +84,8 @@ gitignored; `.env.example` holds the names.
 | Dictation history | `history/history.jsonl` in the repo, **gitignored** |
 | Settings | `settings.json` in the app config dir |
 | Snippets | `snippets.json`, beside `settings.json` |
+| Vocabulary | `vocabulary.json`, beside `settings.json` |
+| Learned corrections | `corrections.jsonl`, beside `settings.json` |
 
 The app config dir is `%APPDATA%\com.codea.piplo` on Windows and
 `~/Library/Application Support/com.codea.piplo` on macOS.
@@ -110,4 +113,5 @@ does not follow you to another machine.
 | [docs/GRAMMAR.md](docs/GRAMMAR.md) | The cleanup step and its guardrails |
 | [docs/HOME.md](docs/HOME.md) | Home window and history |
 | [docs/SNIPPETS.md](docs/SNIPPETS.md) | Spoken triggers → canned text |
-| [docs/SETTINGS.md](docs/SETTINGS.md) | The three settings |
+| [docs/VOCABULARY.md](docs/VOCABULARY.md) | Terms, variants, and learning from corrections |
+| [docs/SETTINGS.md](docs/SETTINGS.md) | The four settings |

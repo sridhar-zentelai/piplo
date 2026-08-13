@@ -16,6 +16,29 @@ export interface HistoryEntry {
   corrected: boolean;
   /** A snippet expansion. Not shown in the UI — see SNIPPETS.md. */
   snippet: boolean;
+  /** The vocabulary replaced something. Not shown in the UI — see VOCABULARY.md. */
+  vocabulary: boolean;
+  /**
+   * The user's own correction, present only on rows they fixed. `text` keeps
+   * meaning what was typed into the application, so the row shows this instead
+   * when it is here.
+   */
+  edited?: string;
+}
+
+/**
+ * Mirrors `vocabulary::Entry`. An empty `id` means "this is new".
+ *
+ * The entry is the term: a term with no variants is still worth having, and a
+ * variant with no term is meaningless.
+ */
+export interface Term {
+  id: string;
+  /** Typed verbatim — `ZentelAI`, `Next.js`. */
+  term: string;
+  /** What Whisper says instead, replaced deterministically. */
+  variants: string[];
+  source: "manual" | "learned";
 }
 
 /** Mirrors `snippets::Snippet`. An empty `id` means "this is new". */
@@ -25,11 +48,36 @@ export interface Snippet {
   content: string;
 }
 
+/** One correction: what was typed, and what the user made it. */
+export interface Mapping {
+  from: string;
+  to: string;
+}
+
+/** Mirrors `learn::Suggestion` — a pair seen twice, not yet accepted or refused. */
+export interface Suggestion extends Mapping {
+  count: number;
+}
+
+/**
+ * Mirrors `learn::Outcome` — what a correction did.
+ *
+ * `counted` is deliberately silent in the UI: the first two occurrences are quiet
+ * by design. `refused` is not — a correction that disappears with no explanation
+ * is the one outcome a user cannot make sense of.
+ */
+export type Outcome =
+  | { kind: "nothing" }
+  | { kind: "counted"; count: number }
+  | { kind: "learned"; term: string; from: string; count: number }
+  | { kind: "refused"; from: string; to: string };
+
 /** Mirrors `settings::Settings`. */
 export interface Settings {
   shortcut: string;
   grammarEnabled: boolean;
   widgetVisible: boolean;
+  learnFromCorrections: boolean;
 }
 
 /**
@@ -94,6 +142,34 @@ export function cancelDictation(): Promise<void> {
   return invoke("cancel_dictation");
 }
 
+/** Mirrors `session::FixView`. */
+export interface WordFix {
+  /** The word on screen now. */
+  from: string;
+  /** What undoing would put there instead. */
+  to: string;
+  undone: boolean;
+}
+
+/**
+ * The vocabulary replacement in the last dictation, if there was one and it is
+ * still the most recent thing Piplo typed. `null` when there is nothing to undo.
+ */
+export function lastWordFix(): Promise<WordFix | null> {
+  return invoke("last_word_fix");
+}
+
+/**
+ * Rub out what Piplo typed and put the other version in its place. Pressing it
+ * again puts the fix back.
+ *
+ * Rejects with a message when the keystrokes could not be delivered. It assumes
+ * the caret has not moved — Piplo never reads the target app to check.
+ */
+export function undoWordFix(): Promise<void> {
+  return invoke("undo_word_fix");
+}
+
 export function getSettings(): Promise<Settings> {
   return invoke("get_settings");
 }
@@ -135,6 +211,51 @@ export function saveSnippet(snippet: Snippet): Promise<Snippet[]> {
 
 export function deleteSnippet(id: string): Promise<Snippet[]> {
   return invoke("delete_snippet", { id });
+}
+
+/** File order — oldest first, since entries are appended as they are created. */
+export function listVocabulary(): Promise<Term[]> {
+  return invoke("list_vocabulary");
+}
+
+/**
+ * Create and update both, keyed on `id`. Rejects with the message to show inside
+ * the form — an empty term, a variant equal to its own term, a variant another
+ * entry already claims, or a term that is already here.
+ *
+ * Returns the whole list, so the page replaces its state outright.
+ */
+export function saveTerm(entry: Term): Promise<Term[]> {
+  return invoke("save_term", { entry });
+}
+
+export function deleteTerm(id: string): Promise<Term[]> {
+  return invoke("delete_term", { id });
+}
+
+/**
+ * Save the user's correction of one dictation, and learn from it.
+ *
+ * Rewrites that history line, then reports what it did — so the row can say so
+ * where the correction was made, rather than through a notification layer.
+ */
+export function recordCorrection(id: string, edited: string): Promise<Outcome> {
+  return invoke("record_correction", { id, edited });
+}
+
+/** Pairs seen twice that are neither refused nor already in the dictionary. */
+export function listSuggestions(): Promise<Suggestion[]> {
+  return invoke("list_suggestions");
+}
+
+/** *Add* — returns the whole dictionary, like every other mutation. */
+export function acceptSuggestion(mapping: Mapping): Promise<Term[]> {
+  return invoke("accept_suggestion", { mapping });
+}
+
+/** *Never*, and *Undo*. Returns the remaining suggestions. */
+export function rejectSuggestion(mapping: Mapping): Promise<Suggestion[]> {
+  return invoke("reject_suggestion", { mapping });
 }
 
 export function openHome(): Promise<void> {

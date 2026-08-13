@@ -3,9 +3,10 @@ import Sidebar, { type Page } from "@/components/Sidebar";
 import HomePage from "@/pages/HomePage";
 import SettingsPage from "@/pages/SettingsPage";
 import SnippetsPage from "@/pages/SnippetsPage";
+import VocabularyPage from "@/pages/VocabularyPage";
 
 /**
- * No router. Three views with no URLs and no deep linking would make a router an
+ * No router. Four views with no URLs and no deep linking would make a router an
  * abstraction with a single call site.
  */
 export default function DesktopWindow() {
@@ -17,6 +18,8 @@ export default function DesktopWindow() {
       <main className="flex min-w-0 flex-1 flex-col">
         {page === "home" ? (
           <HomePage />
+        ) : page === "vocabulary" ? (
+          <VocabularyPage />
         ) : page === "snippets" ? (
           <SnippetsPage />
         ) : (

@@ -4,6 +4,7 @@ mod grammar;
 mod groq;
 mod history;
 mod insert;
+mod learn;
 mod menu;
 mod platform;
 mod session;
@@ -11,6 +12,7 @@ mod settings;
 mod shortcut;
 mod snippets;
 mod tray;
+mod vocabulary;
 mod widget;
 
 use tauri::{Manager, WindowEvent};
@@ -31,6 +33,7 @@ pub fn run() {
         .manage(credentials::Env(env_key))
         .manage(session::Active::default())
         .manage(session::Generation::default())
+        .manage(session::LastFix::default())
         .manage(shortcut::KeyDown::default())
         .manage(menu::MenuOpen::default())
         .manage(widget::Drag::default())
@@ -55,6 +58,8 @@ pub fn run() {
             session::start_dictation,
             session::finish_dictation,
             session::cancel_dictation,
+            session::last_word_fix,
+            session::undo_word_fix,
             settings::get_settings,
             settings::set_settings,
             credentials::get_api_key_status,
@@ -65,6 +70,13 @@ pub fn run() {
             snippets::list_snippets,
             snippets::save_snippet,
             snippets::delete_snippet,
+            vocabulary::list_vocabulary,
+            vocabulary::save_term,
+            vocabulary::delete_term,
+            learn::record_correction,
+            learn::list_suggestions,
+            learn::accept_suggestion,
+            learn::reject_suggestion,
             tray::open_home,
             menu::show_widget_menu,
             menu::hide_widget_menu,
@@ -85,6 +97,10 @@ pub fn run() {
             // The authoritative list — the pipeline reads it on every dictation.
             // A corrupt file loads as none rather than failing the launch.
             app.manage(snippets::Store::new(snippets::load(handle)));
+
+            // Read on every dictation too, and on the same terms: a corrupt file
+            // is an empty dictionary, never a failed launch.
+            app.manage(vocabulary::Store::new(vocabulary::load(handle)));
 
             if credentials::current(handle).is_none() {
                 eprintln!("piplo: no Groq API key — set one in Settings, or via GROQ_API_KEY");
@@ -114,6 +130,7 @@ pub fn run() {
             }
 
             shortcut::register_initial(handle, &shortcut_accelerator);
+            shortcut::register_undo(handle);
             tray::create(handle)?;
 
             // Home opens on launch. `home` stays `"visible": false` in the

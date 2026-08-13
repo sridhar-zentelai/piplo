@@ -3,12 +3,26 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use tauri::{AppHandle, Manager};
-use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 use crate::session;
 
 #[cfg(not(target_os = "macos"))]
 pub const DEFAULT_ACCELERATOR: &str = "Ctrl+Space";
+
+/// Undo — or redo — the vocabulary replacement in the last dictation, without
+/// leaving the app the text was typed into.
+///
+/// Fixed rather than a setting: it is the fifth item in a menu that already exists,
+/// and [four settings](SETTINGS.md) is the whole surface. `Ctrl+Alt+Z` reads as an
+/// undo and is claimed by very little.
+#[cfg(not(target_os = "macos"))]
+pub const UNDO_ACCELERATOR: &str = "Ctrl+Alt+Z";
+
+/// `Cmd+Z` is undo and `Cmd+Shift+Z` is redo in every Mac app, so neither is
+/// Piplo's to take.
+#[cfg(target_os = "macos")]
+pub const UNDO_ACCELERATOR: &str = "Cmd+Alt+Z";
 
 /// `Ctrl+Space` is "select the previous input source" on macOS, so it would fight
 /// the system on any Mac with more than one keyboard layout installed — and the
@@ -43,7 +57,13 @@ pub struct KeyDown(AtomicBool);
 /// works with the concrete `AppHandle`.
 pub fn plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     tauri_plugin_global_shortcut::Builder::new()
-        .with_handler(|app, _shortcut, event| match event.state() {
+        .with_handler(|app, shortcut, event| match event.state() {
+            // On release, so it fires once: `Pressed` auto-repeats while held, and
+            // a repeating undo would flip the text back and forth.
+            ShortcutState::Released if is_undo(shortcut) => {
+                session::toggle_from_shortcut(app);
+            }
+            ShortcutState::Pressed if is_undo(shortcut) => {}
             ShortcutState::Pressed => {
                 if app.state::<KeyDown>().0.swap(true, Ordering::SeqCst) {
                     return; // auto-repeat
@@ -58,6 +78,24 @@ pub fn plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
             }
         })
         .build()
+}
+
+/// Both accelerators reach the same handler, so it has to tell them apart.
+/// Compared as parsed chords rather than strings — the plugin's own formatting is
+/// not the text we wrote.
+fn is_undo(shortcut: &Shortcut) -> bool {
+    UNDO_ACCELERATOR
+        .parse::<Shortcut>()
+        .is_ok_and(|undo| undo == *shortcut)
+}
+
+/// Failure is not fatal: the widget menu offers the same action, so a chord another
+/// app already owns costs a convenience rather than a feature.
+pub fn register_undo(app: &AppHandle) {
+    match app.global_shortcut().register(UNDO_ACCELERATOR) {
+        Ok(()) => println!("piplo: {UNDO_ACCELERATOR} undoes the last word fix"),
+        Err(err) => eprintln!("piplo: could not bind {UNDO_ACCELERATOR}: {err}"),
+    }
 }
 
 /// Falls back to `Ctrl+Space` when the saved shortcut no longer parses or has

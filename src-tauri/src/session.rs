@@ -8,7 +8,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::audio::{self, Recorder};
-use crate::{grammar, groq, history, insert, settings, snippets, widget};
+use crate::{grammar, groq, history, insert, settings, snippets, vocabulary, widget};
 
 /// How long an error sits on the pill before it returns to idle.
 const ERROR_LINGER: Duration = Duration::from_millis(2500);
@@ -58,6 +58,46 @@ struct InFlight {
 /// decide.
 #[derive(Default)]
 pub struct Active(Mutex<Option<InFlight>>);
+
+/// The last dictation that had a word replaced, kept so the widget menu can undo
+/// it in the app it was typed into.
+///
+/// Both versions of the text, and which one is on screen. Nothing is ever read
+/// back from the target application — Piplo only knows what it typed itself, which
+/// is why this is state here rather than an accessibility call.
+struct Fix {
+    typed: String,
+    reverted: String,
+    undone: bool,
+    /// For the menu's label. The first replacement is enough: one is the normal
+    /// case, and a list would not fit a menu row.
+    variant: String,
+    term: String,
+}
+
+#[derive(Default)]
+pub struct LastFix(Mutex<Option<Fix>>);
+
+impl LastFix {
+    fn lock(&self) -> MutexGuard<'_, Option<Fix>> {
+        match self.0.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
+}
+
+/// What the menu needs to draw the item, or `None` when there is nothing to undo.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FixView {
+    /// The word that is on screen now.
+    pub from: String,
+    /// What it would become.
+    pub to: String,
+    /// True once undone, so the item reads as a redo.
+    pub undone: bool,
+}
 
 impl Active {
     fn lock(&self) -> MutexGuard<'_, Option<InFlight>> {
@@ -184,7 +224,12 @@ async fn deliver(app: AppHandle, wav: Vec<u8>, generation: u64, seconds: f32) {
         return;
     };
 
-    let result = groq::transcribe(&key, wav).await;
+    // Read once, so both `apply` passes and both prompts in this dictation see the
+    // same dictionary even if the page saves halfway through.
+    let terms = vocabulary::snapshot(&app);
+    let hint = vocabulary::prompt(&terms);
+
+    let result = groq::transcribe(&key, wav, hint.clone()).await;
 
     if stale(&app, generation) {
         println!("piplo: discarding stale transcription");
@@ -200,15 +245,32 @@ async fn deliver(app: AppHandle, wav: Vec<u8>, generation: u64, seconds: f32) {
         }
     };
 
-    let raw = transcription.text.trim().to_string();
+    let heard = transcription.text.trim().to_string();
 
-    if raw.is_empty() {
+    if heard.is_empty() {
         println!("piplo: nothing transcribed");
         go_idle(&app);
         return;
     }
 
-    println!("piplo: transcript — {raw}");
+    // A near-silent take can come back as the hint itself. Typing the user's own
+    // dictionary at them is worse than typing nothing.
+    if hint.as_deref().is_some_and(|hint| vocabulary::echoed(hint, &heard)) {
+        println!("piplo: transcript was the prompt hint — {heard}");
+        go_idle(&app);
+        return;
+    }
+
+    println!("piplo: transcript — {heard}");
+
+    // Before the snippet check, because a trigger can contain a term: a misheard
+    // brand name would otherwise turn the whole shorthand into a typed sentence.
+    let (raw, mut fired) = vocabulary::apply_tracked(&terms, &heard);
+    let said_wrong = !fired.is_empty();
+
+    if said_wrong {
+        println!("piplo: vocabulary — {raw}");
+    }
 
     // Triggers are short and clean, so this is the check that usually fires. A
     // hit skips grammar entirely, taking a network call out of the most repeated
@@ -219,7 +281,8 @@ async fn deliver(app: AppHandle, wav: Vec<u8>, generation: u64, seconds: f32) {
     // the very next dictation. Status stays Transcribing across both calls:
     // nothing on screen should reveal that there are two rather than one.
     let cleaned = if expanded.is_none() && settings::current(&app).grammar_enabled {
-        grammar::run(&key, &raw).await
+        // Only the terms this transcript actually contains — see VOCABULARY.md.
+        grammar::run(&key, &raw, &vocabulary::terms_in(&terms, &raw)).await
     } else {
         None
     };
@@ -232,10 +295,23 @@ async fn deliver(app: AppHandle, wav: Vec<u8>, generation: u64, seconds: f32) {
     }
 
     let corrected = cleaned.is_some();
-    let spoken = cleaned.unwrap_or_else(|| raw.clone());
+    let mut spoken = cleaned.unwrap_or_else(|| raw.clone());
+    let mut vocabulary = said_wrong;
 
     if corrected {
         println!("piplo: cleaned — {spoken}");
+
+        // Again, because the cleanup sometimes puts the mistake back —
+        // `ZentelAI` → `Zentel AI` is the common one. An in-memory scan over a
+        // few dozen strings, so the second pass costs nothing.
+        let (fixed, again) = vocabulary::apply_tracked(&terms, &spoken);
+
+        if !again.is_empty() {
+            println!("piplo: vocabulary again — {fixed}");
+            spoken = fixed;
+            vocabulary = true;
+            fired.extend(again);
+        }
     }
 
     // The second check, and only when cleanup happened: grammar sometimes fixes a
@@ -270,8 +346,14 @@ async fn deliver(app: AppHandle, wav: Vec<u8>, generation: u64, seconds: f32) {
 
     let inserted = outcome == insert::Insert::Typed;
 
+    // Only what Piplo typed itself, and only while it is the most recent thing it
+    // typed. A snippet expansion is not a word fix, so it is not offered.
+    remember_fix(&app, &text, &fired, inserted && !is_snippet);
+
+    // Whisper's own words, not the corrected ones: `raw_text` is what was heard,
+    // and the vocabulary pass is one of the things it should be compared against.
     // Only when it differs — an unchanged transcript has nothing to compare.
-    let raw_text = (text != raw).then_some(raw);
+    let raw_text = (text != heard).then_some(heard);
 
     // Written before anything is shown on the pill, and with the honest
     // `inserted` value. The history entry is the last line of defence: whatever
@@ -282,6 +364,7 @@ async fn deliver(app: AppHandle, wav: Vec<u8>, generation: u64, seconds: f32) {
     entry.inserted = inserted;
     entry.corrected = corrected;
     entry.snippet = is_snippet;
+    entry.vocabulary = vocabulary;
     history::append(&app, &entry);
 
     if let insert::Insert::Blocked(why) = outcome {
@@ -314,6 +397,138 @@ fn rescue(app: &AppHandle, text: &str, why: &str) {
     // Its own linger: this message asks the user to go and do something, and
     // 2.5s is not long enough to read it, let alone act.
     fail_for(app, message, RESCUE_LINGER);
+}
+
+/// Remember — or forget — the fix the menu can undo.
+///
+/// Cleared on any dictation that replaced nothing, because the offer is always
+/// about the *last* thing typed: leaving a stale one there would rub out text it
+/// did not write.
+fn remember_fix(app: &AppHandle, text: &str, fired: &[vocabulary::Fired], keep: bool) {
+    let state = app.state::<LastFix>();
+    let mut slot = state.lock();
+
+    let Some(first) = fired.first().filter(|_| keep) else {
+        *slot = None;
+        return;
+    };
+
+    *slot = Some(Fix {
+        typed: text.to_string(),
+        reverted: vocabulary::revert(text, fired),
+        undone: false,
+        variant: first.variant.clone(),
+        term: first.term.clone(),
+    });
+}
+
+/// Whether the menu has a fifth item to make room for.
+pub fn has_word_fix(app: &AppHandle) -> bool {
+    let state = app.state::<LastFix>();
+    let slot = state.lock();
+    slot.is_some()
+}
+
+/// What the widget menu should offer, if anything.
+#[tauri::command]
+pub fn last_word_fix(app: AppHandle) -> Option<FixView> {
+    let state = app.state::<LastFix>();
+    let slot = state.lock();
+    let fix = slot.as_ref()?;
+
+    Some(if fix.undone {
+        FixView {
+            from: fix.variant.clone(),
+            to: fix.term.clone(),
+            undone: true,
+        }
+    } else {
+        FixView {
+            from: fix.term.clone(),
+            to: fix.variant.clone(),
+            undone: false,
+        }
+    })
+}
+
+/// Rub out what Piplo typed and type the other version instead — the word Whisper
+/// actually heard, or the term again on a second press.
+///
+/// This assumes the caret has not moved since the dictation, which is why it is
+/// only ever offered for the most recent one and is worded as an undo of it. Piplo
+/// does not read the target application to check; that is the boundary the whole
+/// vocabulary feature is built against.
+#[tauri::command]
+pub async fn undo_word_fix(app: AppHandle) -> Result<(), String> {
+    toggle_word_fix(app).await
+}
+
+/// The shortcut's way in. Fire-and-forget: a hotkey has nobody to report to, so
+/// the reason lands in the log.
+pub fn toggle_from_shortcut(app: &AppHandle) {
+    let app = app.clone();
+
+    tauri::async_runtime::spawn(async move {
+        if let Err(why) = toggle_word_fix(app).await {
+            eprintln!("piplo: could not undo the word fix — {why}");
+        }
+    });
+}
+
+async fn toggle_word_fix(app: AppHandle) -> Result<(), String> {
+    // The keystrokes go wherever focus is. If that is Piplo's own window, the undo
+    // would rub out part of the history list instead of the user's document.
+    if crate::platform::foreground_is_ours() {
+        return Err("click back into your document first".into());
+    }
+
+    // Out of the way before anything is typed, so the user sees the change rather
+    // than a menu sitting over it.
+    crate::menu::hide(&app);
+
+    let (count, target) = {
+        let state = app.state::<LastFix>();
+        let slot = state.lock();
+        let fix = slot.as_ref().ok_or("nothing to undo")?;
+
+        let on_screen = if fix.undone { &fix.reverted } else { &fix.typed };
+        let target = if fix.undone {
+            fix.typed.clone()
+        } else {
+            fix.reverted.clone()
+        };
+
+        (on_screen.chars().count(), target)
+    };
+
+    println!("piplo: word fix — erasing {count} chars, typing {target:?}");
+
+    // Blocking: it waits for modifiers and paces synthesised input.
+    let typed = target.clone();
+    let outcome = tauri::async_runtime::spawn_blocking(move || {
+        insert::replace_typed(count, &typed)
+    })
+    .await
+    .unwrap_or_else(|err| {
+        eprintln!("piplo: undo task failed: {err}");
+        insert::Insert::Blocked("the typing step failed")
+    });
+
+    if let insert::Insert::Blocked(why) = outcome {
+        return Err(why.to_string());
+    }
+
+    // Flipped only after the keystrokes landed, so a blocked undo leaves the state
+    // describing what is actually on screen.
+    let state = app.state::<LastFix>();
+    let mut slot = state.lock();
+
+    if let Some(fix) = slot.as_mut() {
+        fix.undone = !fix.undone;
+        println!("piplo: word fix {} — {target}", if fix.undone { "undone" } else { "redone" });
+    }
+
+    Ok(())
 }
 
 pub fn set_status(app: &AppHandle, status: Status) {

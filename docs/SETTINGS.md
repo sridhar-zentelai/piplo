@@ -1,12 +1,13 @@
 # Settings
 
-**Three settings.** On the home window, applied immediately, no restart.
+**Four settings.** On the home window, applied immediately, no restart.
 
 | Setting | Default | Effect |
 | ------- | ------- | ------ |
 | **Shortcut** | `Ctrl+Space` | The global push-to-talk accelerator |
 | **Automatic grammar correction** | On | Whether transcripts are cleaned up before typing |
 | **Show floating widget** | On | Whether the chip sits on screen while idle. Off still leaves the shortcut working — the pill appears for the session and goes away again |
+| **Learn from my corrections** | On | Whether editing a history row records a [correction](VOCABULARY.md#learning) |
 
 That is the whole list. No device picker, no theme, no launch-at-login, no model
 picker, no language override. Each of those is a real feature request and each
@@ -25,7 +26,8 @@ Windows. **Not in the repo.**
 {
   "shortcut": "Ctrl+Space",
   "grammarEnabled": true,
-  "widgetVisible": true
+  "widgetVisible": true,
+  "learningEnabled": true
 }
 ```
 
@@ -81,6 +83,18 @@ the pill still appears for the duration of a dictation, then goes away again.
 Turning the widget off must not turn dictation off. It is a "get out of my
 screen" control, not a kill switch — and if it disabled the shortcut too, a user
 who set it would have no way to dictate and no visible UI to fix it from.
+
+### The learning toggle
+
+Read inside `record_correction`, which runs only when a user edits a history row.
+Off means the command returns `None` and writes nothing — `corrections.jsonl` is
+untouched rather than cleared, so turning it back on resumes from the counts that
+are already there.
+
+It covers **only the learning half**. Terms the user typed in keep applying,
+because a switch that ignores what you typed is a worse control than deleting the
+entry. Learning gets a switch because it is the one part that creates data on its
+own — see [VOCABULARY.md](VOCABULARY.md#settings).
 
 ---
 

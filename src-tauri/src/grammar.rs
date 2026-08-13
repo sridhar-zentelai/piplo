@@ -64,7 +64,9 @@ const META_PREFIXES: [&str; 12] = [
     "okay,",
 ];
 
-pub async fn run(api_key: &str, raw: &str) -> Option<String> {
+/// `terms` are the vocabulary entries **found in this transcript**, which the
+/// model is told to leave alone.
+pub async fn run(api_key: &str, raw: &str, terms: &[String]) -> Option<String> {
     if !enabled() {
         return None;
     }
@@ -73,8 +75,21 @@ pub async fn run(api_key: &str, raw: &str) -> Option<String> {
         return None;
     }
 
-    let candidate = request(api_key, raw).await?;
+    let candidate = request(api_key, raw, terms).await?;
     accept(raw, &candidate)
+}
+
+/// A second line of defence, not the first — the second `vocabulary::apply` pass
+/// is what guarantees the result. This just reduces how often it has to work.
+fn system_prompt(terms: &[String]) -> String {
+    if terms.is_empty() {
+        return SYSTEM_PROMPT.to_string();
+    }
+
+    format!(
+        "{SYSTEM_PROMPT}\n- Preserve these terms exactly as written: {}.",
+        terms.join(", ")
+    )
 }
 
 /// Not in the UI. A way to A/B the feature and rule it out when debugging a bad
@@ -110,7 +125,7 @@ struct Message {
     content: Option<String>,
 }
 
-async fn request(api_key: &str, raw: &str) -> Option<String> {
+async fn request(api_key: &str, raw: &str, terms: &[String]) -> Option<String> {
     let body = serde_json::json!({
         "model": model(),
         // A text filter, not a writing assistant. Nothing to be creative about.
@@ -125,7 +140,7 @@ async fn request(api_key: &str, raw: &str) -> Option<String> {
         // latency on every dictation.
         "reasoning_effort": "none",
         "messages": [
-            { "role": "system", "content": SYSTEM_PROMPT },
+            { "role": "system", "content": system_prompt(terms) },
             // Untrusted input — see SYSTEM_PROMPT.
             { "role": "user", "content": raw },
         ],
@@ -274,6 +289,13 @@ fn unquote(text: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn names_only_the_terms_it_was_given() {
+        assert_eq!(system_prompt(&[]), SYSTEM_PROMPT);
+        assert!(system_prompt(&["ZentelAI".into(), "Next.js".into()])
+            .ends_with("Preserve these terms exactly as written: ZentelAI, Next.js."));
+    }
 
     #[test]
     fn strips_think_blocks() {

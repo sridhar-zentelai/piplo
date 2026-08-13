@@ -235,10 +235,110 @@ and no pipeline wiring at all.
 > whole-utterance matching and the failed write — are the two that make the
 > feature safe to keep.
 
+## M7 — Vocabulary
+
+Two halves with a hard order between them: the dictionary has to *work* before
+anything is allowed to *write* to it. Building the learner first would mean
+tuning a filter against a replacement engine that might itself be wrong.
+
+Both halves start with pure functions, so both are testable before any wiring.
+
+- [x] **7.1 — Replacement, proven by tests**
+  `vocabulary.rs`: the `Entry` struct and `apply`. Nothing else — no state, no
+  commands, no file. Tests for all five rules in
+  [VOCABULARY.md](VOCABULARY.md#applying): longest-first, whole-word, exact
+  output casing, no rescanning, nothing else touched.
+  **See:** `cargo test` green, including `verbal` → `Vercel` leaving "verbally"
+  alone. That one case is what makes the feature safe in a real document.
+
+- [x] **7.2 — Terms survive a restart**
+  `Store`, `load` at startup, `commit` (write to disk, *then* adopt), and the
+  three commands with their validation — empty term, a variant equal to its own
+  term, and the normalized clash check that excludes the row being edited.
+  **See:** create an entry from the devtools console, restart, `list_vocabulary`
+  still returns it. Then make `vocabulary.json` read-only and save again: an
+  error, and nothing changed.
+
+- [x] **7.3 — Saying it wrong types it right**
+  The two `apply` calls in `session::deliver` — on the raw transcript before the
+  snippet check, and again after grammar. Log `"vocabulary": true` in the JSONL.
+  **See:** with `gentle AI` → `ZentelAI` saved, dictate the sentence into Notepad
+  and get the brand name.
+  **Then:** make grammar split the term and confirm the second pass puts it back.
+  Without that pass this task looks finished and isn't.
+
+- [x] **7.4 — Whisper hears the terms**
+  `vocabulary::prompt`, the `prompt` field on the transcription request, and
+  `terms_in` feeding the preserve line into the grammar system prompt.
+  **See:** the request carries a capped comma list; with an empty dictionary the
+  field is absent entirely, not empty.
+  **Then:** dictate into silence with a full dictionary. The prompt must not come
+  back as your transcript.
+
+> Half done here is a complete, useful feature: a dictionary the user fills in by
+> hand. Everything below only removes the typing.
+
+- [x] **7.5 — Candidates, proven by tests**
+  `learn.rs`: `candidate` and `looks_like_a_term`, and nothing that touches a
+  file. A test per row of the [eligibility filter](VOCABULARY.md#the-eligibility-filter).
+  **See:** `cargo test` green, with "yesterday" → "last night", "he go" → "he
+  goes" and "very good" → "excellent" all returning `None`, and "gentle AI" →
+  "ZentelAI" returning a mapping.
+
+- [ ] **7.6 — Fix it here**
+  The history row's edit affordance, `record_correction`, the `edited` field, and
+  the whole-file rewrite via temp-file-and-rename. One `observed` line per edit.
+  **See:** correct a row; `corrections.jsonl` gains exactly one line and the row
+  shows your corrected text after a re-fetch.
+  **Then:** kill the app mid-write. The history file is the old version or the
+  new one, never half of one.
+  *Built — `history::correct` rewrites via temp-file-and-rename, the row has its
+  edit form. Both **See** lines still need running by hand.*
+
+- [ ] **7.7 — Three strikes**
+  Counting from the ledger, the Suggested list, promotion at three, and rejection
+  from both *Never* and deleting a learned variant. The
+  **Learn from my corrections** setting.
+  **See:** make the same correction three times. Silent, then suggested, then
+  learned — and the fourth dictation of that phrase types the right word without
+  you touching anything. That sentence is the whole product.
+  **Then:** reject one and make it twice more. It stays gone.
+  *Built — counting from the ledger, Suggested, promotion at three, rejection
+  from both *Never* and deleting a variant, and the setting. The three-strikes
+  **See** line is the one check that has to be done by hand.*
+
+- [ ] **7.8 — The page lists and edits them**
+  `VocabularyPage.tsx` + `TermRow.tsx` + the fourth sidebar entry. Suggestions
+  section at the top, hidden when empty. Edit in place, inline delete confirm, a
+  rejected save shown next to the field.
+  **Reuse, don't rebuild:** `Pagination.tsx`, the empty-state container, the list
+  wrapper and the fixed-column row grid all exist already. A third copy of any of
+  them means this task was done wrong.
+  **See:** add, edit and delete three entries without touching the console, and
+  accept a suggestion from the page.
+  *Built ahead of the learner, minus the Suggested section — the manual
+  dictionary is unusable without a page. Only the suggestions half is left, and
+  it needs 7.7 to have anything to show.*
+
+- [ ] **7.9 — It behaves with real amounts of data**
+  Search (term *and* variants), the All / Manual / Learned filter, sort,
+  pagination, and both empty states.
+  **See:** searching "gentle" finds `ZentelAI` — finding an entry by the mistake
+  is the reason search exists here.
+  **Then:** 21 entries, page 2, delete the only row on it → you land on page 1.
+  Filter then search then paginate, and the readout always agrees with the rows.
+  *Search, sort, pagination and both empty states shipped with 7.8. The
+  All / Manual / Learned filter waits for 7.7: until something can be learned,
+  every entry is manual and two of the three states are empty.*
+
+> Seventeen checks in [VOCABULARY.md](VOCABULARY.md#checks). Numbers 3 and 7 —
+> whole-word replacement and refusing to learn ordinary edits — are the two that
+> decide whether this feature is an asset or a slow leak.
+
 ## Done
 
-- [ ] **7.1 — The full sweep**
-  Every check in [MVP_PLAN.md](MVP_PLAN.md), M1 through M6, in one sitting on a
+- [ ] **8.1 — The full sweep**
+  Every check in [MVP_PLAN.md](MVP_PLAN.md), M1 through M7, in one sitting on a
   release build.
   **See:** a list of what failed. Fix those, then Piplo is finished.
 

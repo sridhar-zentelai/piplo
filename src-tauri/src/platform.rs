@@ -346,6 +346,39 @@ pub fn cursor_position() -> Option<(i32, i32)> {
     None
 }
 
+/// Whether the window with keyboard focus belongs to Piplo itself.
+///
+/// Only the owning process is compared — no window text, no contents, nothing
+/// about anyone else's application. Synthesised input goes wherever focus is, so
+/// this is what stops an undo from typing into Piplo's own window when the user is
+/// looking at it.
+#[cfg(windows)]
+pub fn foreground_is_ours() -> bool {
+    use windows::Win32::System::Threading::GetCurrentProcessId;
+    use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
+
+    unsafe {
+        let window = GetForegroundWindow();
+
+        if window.is_invalid() {
+            return false;
+        }
+
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(window, Some(&mut pid));
+
+        pid != 0 && pid == GetCurrentProcessId()
+    }
+}
+
+/// Not implemented yet on macOS — the guard is a courtesy, and reporting "not
+/// ours" only means the user can aim an undo at Piplo's own window. See
+/// [MACOS.md](../../docs/MACOS.md).
+#[cfg(not(windows))]
+pub fn foreground_is_ours() -> bool {
+    false
+}
+
 /// Either mouse button physically down.
 #[cfg(windows)]
 pub fn mouse_down() -> bool {

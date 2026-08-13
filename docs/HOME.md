@@ -2,32 +2,33 @@
 
 The `home` window is the only conventional window in the app: decorated,
 resizable, 880×600, and **opened on launch**. It exists to answer one question —
-"what did I dictate?" — and to hold the three settings.
+"what did I dictate?" — and to hold the four settings.
 
 Also opened from the tray or the widget's right-click menu. Closing it hides it
 rather than quitting; the app keeps running in the tray, and the tray brings it
 back.
 
 ```
-┌──────────────┬──────────────────────────────────────────────┐
-│              │  History                                     │
-│  ◉  Piplo    │                          142 dictations  ⌫   │
-│              │  ┌────────────────────────────────────────┐  │
-│  ⌂  Home     │  │ So I think we should ship it Monday…   │  │
-│  ⧉  Snippets │  │ 2 minutes ago · 4.2s · en          ⧉  │  │
-│  ⚙  Settings │  │                                        │  │
-│              │  ├────────────────────────────────────────┤  │
-│              │  │ Can you send me the deck when you…     │  │
-│              │  │ 18 minutes ago · 6.8s · en         ⧉  │  │
-│              │  └────────────────────────────────────────┘  │
-│  v0.1.0      │                                              │
-└──────────────┴──────────────────────────────────────────────┘
+┌───────────────┬─────────────────────────────────────────────┐
+│               │  History                                    │
+│  ◉  Piplo     │                         142 dictations  ⌫   │
+│               │  ┌───────────────────────────────────────┐  │
+│  ⌂  Home      │  │ So I think we should ship it Monday…  │  │
+│  ⌸  Vocabulary│  │ 2 minutes ago · 4.2s · en       ✎  ⧉  │  │
+│  ⧉  Snippets  │  │                                       │  │
+│  ⚙  Settings  │  ├───────────────────────────────────────┤  │
+│               │  │ Can you send me the deck when you…    │  │
+│               │  │ 18 minutes ago · 6.8s · en      ✎  ⧉  │  │
+│               │  └───────────────────────────────────────┘  │
+│  v0.1.0       │                                             │
+└───────────────┴─────────────────────────────────────────────┘
 ```
 
-Three pages, one sidebar — Home, [Snippets](SNIPPETS.md#the-page), Settings. No
-router: `DesktopWindow.tsx` holds a `useState<"home" | "snippets" | "settings">`.
-A router for three views with no URLs and no deep linking would be an abstraction
-with a single call site.
+Four pages, one sidebar — Home, [Vocabulary](VOCABULARY.md#the-page),
+[Snippets](SNIPPETS.md#the-page), Settings. No router: `DesktopWindow.tsx` holds a
+`useState<"home" | "vocabulary" | "snippets" | "settings">`. A router for four
+views with no URLs and no deep linking would be an abstraction with a single call
+site.
 
 ---
 
@@ -37,18 +38,19 @@ with a single call site.
 | --------- | -------------- |
 | `DesktopWindow.tsx` | Shell, page state, sidebar + content split |
 | `HomeHero.tsx` | Greeting, the live shortcut, status, three stat tiles |
-| `Pagination.tsx` | Page cursor. **Shared with the snippets list** |
-| `Sidebar.tsx` | Brand mark, three nav entries, version at the bottom |
+| `Pagination.tsx` | Page cursor. **Shared with the snippets and vocabulary lists** |
+| `Sidebar.tsx` | Brand mark, four nav entries, version at the bottom |
 | `HomePage.tsx` | The list, the count, clear-all |
-| `HistoryRow.tsx` | One entry |
+| `HistoryRow.tsx` | One entry, and its correction form |
+| `VocabularyPage.tsx` | See [VOCABULARY.md](VOCABULARY.md#the-page) |
 | `SnippetsPage.tsx` | See [SNIPPETS.md](SNIPPETS.md#the-page) |
 | `SettingsPage.tsx` | See [SETTINGS.md](SETTINGS.md) |
 
-Several elements are shared with the snippets page rather than built twice — the
-pagination control, the empty-state container, the list wrapper, and the
-fixed-column row grid. The full list is in
-[SNIPPETS.md](SNIPPETS.md#shared-with-the-history-page); change either page's copy
-and you change both.
+Several elements are shared across the three list pages rather than built three
+times — the pagination control, the empty-state container, the list wrapper, and
+the fixed-column row grid. The full list is in
+[SNIPPETS.md](SNIPPETS.md#shared-with-the-history-page); change one page's copy
+and you change all of them.
 
 Sidebar is a fixed 200 px; the content area scrolls. `minWidth: 520`,
 `minHeight: 400` in the window config so the split cannot be squeezed into
@@ -89,6 +91,7 @@ Read from `history/history.jsonl` via `get_history`, newest first.
   week. Computed on render from `at`.
 - **Duration** and **language** from the transcription metadata.
 - **Copy** button → `@tauri-apps/plugin-clipboard-manager`.
+- **Fix it here** → the [correction form](#correcting-a-row).
 
 **Copy must use the plugin, not `navigator.clipboard`.** The packaged app serves
 `http://tauri.localhost`, which is not a secure context, so the browser API is
@@ -97,8 +100,27 @@ build if you get it wrong.
 
 `raw_text` is not shown. It is in the file for auditing the
 [grammar step](GRAMMAR.md#logging-both-versions), not for the user to compare
-side by side — that would be a diff viewer, which is not one of the five
+side by side — that would be a diff viewer, which is not one of the six
 features.
+
+### Correcting a row
+
+The row's text becomes editable in place — the same expand-in-place treatment,
+with a textarea instead of a paragraph. `Ctrl+Enter` saves, `Escape` cancels.
+
+Saving calls `record_correction`, which stores the correction in the entry's
+`edited` field and hands it to [the learner](VOCABULARY.md#learning). When
+something is learned, the row says so immediately, with *Undo*.
+
+**Be honest about what this does.** The text has already been typed into another
+application; fixing it here does not fix it there. The immediate payoff is a
+corrected line to copy; the real one is that Piplo stops making the mistake. The
+affordance is labelled *Fix it here* rather than *Edit* for exactly that reason —
+a plain pencil promises something the feature does not do.
+
+Saving rewrites `history.jsonl` whole, via a temp file and a rename. The file is
+[already read whole](#scale) on every render, so this is the same cost class, and
+an interrupted write must never leave a truncated history.
 
 ### Loading
 
@@ -147,6 +169,7 @@ read, not a database. No search.
 | ------- | ------- |
 | `get_history` | `Vec<Entry>`, newest first |
 | `clear_history` | `()` |
+| `record_correction` | `Result<Option<Learned>, String>` — see [VOCABULARY.md](VOCABULARY.md#commands) |
 | `open_home` | `()` — show + focus + unminimise |
 
 `open_home` must handle the window already being open but behind something else:

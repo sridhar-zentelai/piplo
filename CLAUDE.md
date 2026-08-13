@@ -20,20 +20,23 @@ should never lose a dictation to a failure.
 
 # Scope
 
-Piplo has **five** features and nothing else:
+Piplo has **six** features and nothing else:
 
 | # | Feature | What it is |
 | - | ------- | ---------- |
 | 1 | **Transcribe** | Global shortcut → mic capture → Groq Whisper → typed into the focused app |
 | 2 | **Grammar** | The transcript is cleaned up automatically before it is typed. No button, no picker |
 | 3 | **Home + history** | A desktop window listing past dictations, newest first, with copy |
-| 4 | **Settings** | Three settings: shortcut, grammar on/off, widget visible |
+| 4 | **Settings** | Four settings: shortcut, grammar on/off, widget visible, learn from corrections |
 | 5 | **Snippets** | Say a saved trigger on its own and Piplo types the canned text instead |
+| 6 | **Vocabulary** | Words Piplo should get right, and the corrections it learns from you |
 
 Plus the surface they live on:
 
 - **Floating widget** — a chip that morphs into a recording pill
-- **Right-click menu** on the widget — dictate, grammar toggle, open Piplo, quit
+- **Right-click menu** on the widget — dictate, grammar toggle, [undo the last
+  word fix](docs/VOCABULARY.md#undoing-a-fix-in-the-app-you-are-typing-in) when
+  there is one, open Piplo, quit
 - **Tray icon** — open, quit
 
 ## DO NOT implement
@@ -46,17 +49,23 @@ Not "later" — do not write code for these at all:
 - Prompt templates, rewrite styles, per-app tone
 - Keyboard-triggered text expansion — [snippets](docs/SNIPPETS.md) are spoken
   only, and never watch what you type
+- **Any keyboard hook or accessibility read of another application** — no
+  watching what you type, no reading the text around the caret, no per-app or
+  per-website context. This is the boundary
+  [vocabulary](docs/VOCABULARY.md#why-not-watch-the-users-own-app) is built
+  against, not a feature waiting for time
+- Scanning the user's projects or filesystem for terminology
 - Voice commands
 - Clipboard history
 - Authentication, billing, accounts
-- Cloud sync
+- Cloud sync, team or shared dictionaries
 - Auto-update
 - Onboarding flows
-- Analytics
+- Analytics, usage counts
 - Light theme
 - Linux support
 
-**Before adding anything, ask: is this one of the five features?** If not, it
+**Before adding anything, ask: is this one of the six features?** If not, it
 does not get built. Piplo is deliberately smaller than it could be.
 
 ---
@@ -100,6 +109,12 @@ never exposed to the webview.
 Base URL `https://api.groq.com`. The grammar model is overridable with
 `PIPLO_GRAMMAR_MODEL` so a wrong or retired id can be fixed without a rebuild.
 
+Both calls carry the user's [vocabulary](docs/VOCABULARY.md): the terms go to
+Whisper as a `prompt` hint, and the terms *found in the transcript* go to the
+grammar model as a preserve-exactly line. Neither is load bearing — the
+deterministic replacement in `vocabulary.rs` is what actually guarantees the
+result.
+
 ---
 
 # Architecture
@@ -127,13 +142,19 @@ audio.rs             (release)
               16 kHz mono WAV (hound)
                          │
                          ▼
-                     groq.rs        (transcribe)
+                     groq.rs        (transcribe, terms sent as a hint)
+                         │
+                         ▼
+                  vocabulary.rs     (variants → terms, deterministic)
                          │
                          ▼
                    snippets.rs      (trigger? → content, skip grammar)
                          │
                          ▼
                     grammar.rs      (clean up, fails soft)
+                         │
+                         ▼
+                  vocabulary.rs     (did the cleanup undo it?)
                          │
                          ▼
                    snippets.rs      (trigger the cleanup revealed?)
@@ -144,6 +165,9 @@ audio.rs             (release)
       wait for modifiers,      append one JSONL
       SendInput Unicode        line per dictation
 ```
+
+`learn.rs` sits outside this path entirely. It runs when a user edits a history
+row in the home window — never during a dictation.
 
 The frontend hears exactly two events: `status` (a tagged state) and `level` (a
 float, ~30 Hz, kept separate so the waveform does not re-render the tree).
@@ -276,7 +300,9 @@ src/
     Sidebar.tsx            home window nav
     HistoryRow.tsx         one dictation
     SnippetRow.tsx         one snippet, and its edit form
-    Pagination.tsx         shared by history and snippets
+    TermRow.tsx            one vocabulary entry, and its edit form
+    SuggestionRow.tsx      a candidate correction: Add / Never
+    Pagination.tsx         shared by history, snippets and vocabulary
     SettingsPanel.tsx
     ShortcutRecorder.tsx   captures a real chord
     ui/                    shadcn primitives
@@ -284,6 +310,7 @@ src/
     DesktopWindow.tsx      shell for the `home` window
     HomePage.tsx           history list
     SnippetsPage.tsx       triggers → canned text
+    VocabularyPage.tsx     terms, variants, suggestions
     SettingsPage.tsx
   hooks/
     useWidgetEvents.ts     status + level listeners
@@ -306,6 +333,8 @@ src-tauri/src/
   groq.rs       transcription
   grammar.rs    cleanup
   snippets.rs   triggers, matching, snippets.json
+  vocabulary.rs variants → terms, the prompt hint, vocabulary.json
+  learn.rs      candidates, the eligibility filter, corrections.jsonl
   insert.rs     SendInput
   history.rs    JSONL
   settings.rs   settings.json
@@ -339,5 +368,6 @@ Do not skip ahead — each milestone is verifiable on its own.
 4. **[Home](docs/HOME.md)** — history list and [settings](docs/SETTINGS.md).
 5. **[Right-click menu](docs/WIDGET.md#right-click-menu)** — needs the rest to exist first.
 6. **[Snippets](docs/SNIPPETS.md)** — triggers, matching, and the page.
+7. **[Vocabulary](docs/VOCABULARY.md)** — the dictionary first, then the learning.
 
 Full plan and per-milestone verification: [docs/MVP_PLAN.md](docs/MVP_PLAN.md).

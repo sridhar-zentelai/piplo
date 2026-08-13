@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {
+  BookMarked,
   Clock,
   PanelLeftClose,
   PanelLeftOpen,
@@ -8,10 +9,11 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export type Page = "home" | "snippets" | "settings";
+export type Page = "home" | "vocabulary" | "snippets" | "settings";
 
 const NAV: { id: Page; label: string; icon: typeof Clock }[] = [
   { id: "home", label: "Home", icon: Clock },
+  { id: "vocabulary", label: "Vocabulary", icon: BookMarked },
   { id: "snippets", label: "Snippets", icon: Replace },
   { id: "settings", label: "Settings", icon: SettingsIcon },
 ];

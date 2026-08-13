@@ -19,6 +19,10 @@ pub struct Settings {
     pub shortcut: String,
     pub grammar_enabled: bool,
     pub widget_visible: bool,
+    /// Whether editing a history row records a correction. Only the learning half
+    /// has a switch: the terms themselves are words the user typed in, and a
+    /// toggle that ignores what you typed is a worse control than deleting it.
+    pub learn_from_corrections: bool,
 }
 
 impl Default for Settings {
@@ -27,6 +31,7 @@ impl Default for Settings {
             shortcut: shortcut::DEFAULT_ACCELERATOR.to_string(),
             grammar_enabled: true,
             widget_visible: true,
+            learn_from_corrections: true,
         }
     }
 }

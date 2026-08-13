@@ -35,6 +35,23 @@ pub struct Entry {
     /// behaviour is greppable. `default` so lines written before it still load.
     #[serde(default)]
     pub snippet: bool,
+    /// Whether the vocabulary replaced anything, on either side of grammar.
+    /// Greppable for the same reason as `corrected` and `snippet`.
+    #[serde(default)]
+    pub vocabulary: bool,
+    /// The user's own correction, present only on rows they fixed. `text` keeps
+    /// meaning **what was typed into the application** — the one guarantee that
+    /// field has, and nothing here may change it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edited: Option<String>,
+}
+
+/// What the learner needs to know about the row it just corrected.
+pub struct Corrected {
+    /// What was typed into the application, which is what the edit is against.
+    pub typed: String,
+    /// Editing canned text is editing the snippet, not the transcript.
+    pub snippet: bool,
 }
 
 impl Entry {
@@ -53,6 +70,8 @@ impl Entry {
             raw_text,
             corrected: false,
             snippet: false,
+            vocabulary: false,
+            edited: None,
         }
     }
 }
@@ -123,6 +142,60 @@ pub fn get_history(app: AppHandle) -> Vec<Entry> {
 
     entries.reverse();
     entries
+}
+
+/// Record the user's correction on one row, and report what was there before.
+///
+/// Editing a row means rewriting the file whole, which is a change of character
+/// for an append-only log and the right trade: it is already read whole on every
+/// render, so rewriting costs the same class, and the alternative — appending a
+/// supersede record — pushes a fold onto every reader of the file forever.
+///
+/// Lines that will not parse are carried through untouched rather than dropped: a
+/// rewrite must not be a way to lose history.
+pub fn correct(app: &AppHandle, id: &str, edited: &str) -> Result<Corrected, String> {
+    let dir = directory(app).ok_or_else(|| "no history directory".to_string())?;
+    let path = dir.join(FILE);
+
+    let text = std::fs::read_to_string(&path).map_err(|err| err.to_string())?;
+
+    let mut found: Option<Corrected> = None;
+    let mut out = String::with_capacity(text.len() + edited.len());
+
+    for line in text.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+
+        match serde_json::from_str::<Entry>(line) {
+            Ok(mut entry) if entry.id == id => {
+                found = Some(Corrected {
+                    typed: entry.text.clone(),
+                    snippet: entry.snippet,
+                });
+
+                entry.edited = Some(edited.to_string());
+
+                match serde_json::to_string(&entry) {
+                    Ok(json) => out.push_str(&json),
+                    Err(err) => return Err(err.to_string()),
+                }
+            }
+            _ => out.push_str(line),
+        }
+
+        out.push('\n');
+    }
+
+    let found = found.ok_or_else(|| "that dictation is no longer in history".to_string())?;
+
+    // Temp file and rename, so an interrupted write leaves either the old file or
+    // the new one and never half of one.
+    let temp = dir.join(format!("{FILE}.tmp"));
+    std::fs::write(&temp, out).map_err(|err| err.to_string())?;
+    std::fs::rename(&temp, &path).map_err(|err| err.to_string())?;
+
+    Ok(found)
 }
 
 #[tauri::command]

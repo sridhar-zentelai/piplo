@@ -12,8 +12,14 @@ use crate::platform;
 #[cfg(windows)]
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP,
-    KEYEVENTF_UNICODE, VIRTUAL_KEY, VK_RETURN,
+    KEYEVENTF_UNICODE, VIRTUAL_KEY, VK_BACK, VK_RETURN,
 };
+
+/// A ceiling on `erase`. Undoing a word fix rubs out what Piplo just typed; a
+/// count larger than any plausible dictation means the state is wrong, and
+/// hammering backspace into someone's document is the worst possible way to find
+/// out.
+const MAX_ERASE: usize = 5000;
 
 /// How long to wait for the user to let go of their modifiers.
 const MODIFIER_POLL: Duration = Duration::from_millis(10);
@@ -153,6 +159,90 @@ pub fn type_text(text: &str) -> Insert {
 
 #[cfg(not(any(windows, target_os = "macos")))]
 pub fn type_text(_text: &str) -> Insert {
+    Insert::Blocked("typing is not implemented on this platform")
+}
+
+/// Rub out `count` characters, then type `text` in their place.
+///
+/// Blocking, like `type_text`, and it assumes the caret has not moved since Piplo
+/// typed — which is why it is only ever offered for the most recent dictation and
+/// is described to the user as an undo of that.
+pub fn replace_typed(count: usize, text: &str) -> Insert {
+    if count > MAX_ERASE {
+        return Insert::Blocked("too much text to undo");
+    }
+
+    match erase(count) {
+        Insert::Typed => type_text(text),
+        blocked => blocked,
+    }
+}
+
+#[cfg(windows)]
+fn erase(count: usize) -> Insert {
+    if count == 0 {
+        return Insert::Typed;
+    }
+
+    wait_for_modifiers();
+
+    let mut batch: Vec<INPUT> = Vec::with_capacity(BATCH);
+    let mut delivered = false;
+
+    for _ in 0..count {
+        batch.push(virtual_key(VK_BACK, KEYBD_EVENT_FLAGS(0)));
+        batch.push(virtual_key(VK_BACK, KEYEVENTF_KEYUP));
+
+        if batch.len() >= BATCH {
+            delivered |= flush(&mut batch);
+        }
+    }
+
+    delivered |= flush(&mut batch);
+
+    if delivered {
+        Insert::Typed
+    } else {
+        Insert::Blocked("another app blocked the keystrokes")
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn erase(count: usize) -> Insert {
+    use objc2_core_graphics::{
+        CGEvent, CGEventSource, CGEventSourceStateID, CGEventTapLocation, CGPreflightPostEventAccess,
+    };
+
+    /// Delete, in Apple's positional keycodes.
+    const DELETE: u16 = 51;
+
+    if count == 0 {
+        return Insert::Typed;
+    }
+
+    if !CGPreflightPostEventAccess() {
+        return Insert::Blocked("Piplo needs Accessibility permission to type");
+    }
+
+    wait_for_modifiers();
+
+    let Some(source) = CGEventSource::new(CGEventSourceStateID::HIDSystemState) else {
+        return Insert::Blocked("macOS refused to create an input source");
+    };
+
+    for _ in 0..count {
+        for down in [true, false] {
+            if let Some(event) = CGEvent::new_keyboard_event(Some(&*source), DELETE, down) {
+                CGEvent::post(CGEventTapLocation::HIDEventTap, Some(&*event));
+            }
+        }
+    }
+
+    Insert::Typed
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+fn erase(_count: usize) -> Insert {
     Insert::Blocked("typing is not implemented on this platform")
 }
 

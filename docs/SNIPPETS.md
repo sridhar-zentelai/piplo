@@ -10,8 +10,8 @@ say "sign off"  →  Piplo types  Thanks,\nSridhar
 One phrase in, one block of text out. No placeholders, no variables, no
 per-app rules — see [what this is not](#what-this-is-not).
 
-A fifth feature rather than a variation on dictation: it is the only one where
-what gets typed is **not** what you said.
+A feature in its own right rather than a variation on dictation: it is the only
+one where what gets typed is **not** what you said.
 
 ---
 
@@ -23,10 +23,14 @@ check moved ahead of grammar:
 ```
 transcript (raw)
       │
+   vocabulary.rs  ← variants → terms, so a term inside a trigger cannot break it
+      │
       ├─ trigger match on raw? ──── hit ──→ content ──┐
       │                                              │
       ▼ miss                                         │
    grammar.rs                                        │
+      │                                              │
+   vocabulary.rs                                     │
       │                                              │
       ├─ trigger match on cleaned? ─ hit ──→ content ─┤
       │                                              │
@@ -35,6 +39,10 @@ transcript (raw)
                                                      ▼
                                               insert.rs + history.rs
 ```
+
+[Vocabulary](VOCABULARY.md) runs first because a trigger can contain a term — a
+snippet on `zentelai standup` would otherwise miss whenever Whisper mangled the
+brand name.
 
 **Two checks, not one.** The first, on the raw transcript, is what usually fires
 — triggers are short and clean, so Whisper rarely mangles them. A hit there
@@ -276,6 +284,9 @@ a bug.
 
 Build none of these twice. If one needs to change for snippets, it changes for
 both or it is not shared.
+
+The [vocabulary page](VOCABULARY.md#the-page) reuses the same set. A third copy
+of any row in this table means it was built wrong.
 
 | Element | Where it lives |
 | ------- | -------------- |

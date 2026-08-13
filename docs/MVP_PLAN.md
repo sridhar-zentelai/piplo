@@ -1,6 +1,6 @@
 # Build Plan
 
-Six milestones. Each one is independently verifiable — do not start the next
+Seven milestones. Each one is independently verifiable — do not start the next
 until the current one passes its checks. The order is chosen so that the riskiest
 native work (focus, keystrokes) is proven before any UI is built on top of it.
 
@@ -12,6 +12,7 @@ native work (focus, keystrokes) is proven before any UI is built on top of it.
 | M4 | [Home](#m4--home) | History list + settings | [HOME.md](HOME.md), [SETTINGS.md](SETTINGS.md) |
 | M5 | [Right-click menu](#m5--right-click-menu) | The widget's menu | [WIDGET.md](WIDGET.md#right-click-menu) |
 | M6 | [Snippets](#m6--snippets) | Spoken triggers → canned text, and their page | [SNIPPETS.md](SNIPPETS.md) |
+| M7 | [Vocabulary](#m7--vocabulary) | Terms Piplo gets right, and the corrections it learns | [VOCABULARY.md](VOCABULARY.md) |
 
 ---
 
@@ -144,7 +145,7 @@ The only real UI work. Detail in [HOME.md](HOME.md) and
 
 - `DesktopWindow.tsx` + `Sidebar.tsx` — two entries, Home and Settings
 - `HomePage.tsx` — history list, newest first, copy per row, clear all
-- `SettingsPage.tsx` + `SettingsPanel.tsx` — the three settings
+- `SettingsPage.tsx` + `SettingsPanel.tsx` — the settings
 - `ShortcutRecorder.tsx` — captures a real chord, `event.code` not `event.key`
 - `settings.rs` — load, validate, save, and apply live
 
@@ -214,9 +215,55 @@ any UI exists:
 
 ---
 
+## M7 — Vocabulary
+
+The words Piplo keeps getting wrong, and the corrections it remembers. Detail in
+[VOCABULARY.md](VOCABULARY.md).
+
+Last, because it edits the transcript in the same hot path M2 and M3 established,
+and because [learning](VOCABULARY.md#learning) reads and writes the history file
+M4 built.
+
+Build order — a hard split, and the order between the halves is not negotiable:
+
+**The dictionary** — useful on its own, entirely by hand:
+
+1. `vocabulary.rs` — `apply`, with its unit tests. No wiring
+2. Load, `commit` (write then adopt), and the three commands with validation
+3. The two `apply` calls in `session::deliver`, either side of grammar
+4. The `prompt` field on the transcription request, and the preserve line in the
+   grammar prompt
+
+**The learner** — removes the typing, and only once the above works:
+
+5. `learn.rs` — `candidate` and the eligibility filter, with its unit tests
+6. The history row's edit affordance, `record_correction`, and the `edited` field
+7. Counting, suggestions, promotion at three, rejection
+8. `VocabularyPage.tsx` + `TermRow.tsx`, reusing the pagination control, the
+   empty-state container and the row grid
+9. The fourth sidebar entry
+
+Building the learner first would mean tuning its filter against a replacement
+engine that has not been proven — two unknowns, one symptom.
+
+**Checks** — the full list is in [VOCABULARY.md](VOCABULARY.md#checks). The four
+that matter most:
+
+1. **Whole words only.** A variant of `verbal` → `Vercel` must leave "verbally"
+   untouched. Replacing inside words makes the feature unusable in a document.
+2. **Ordinary edits are never learned.** "yesterday" → "last night", "he go" →
+   "he goes", "very good" → "excellent". A dictionary that fills with these is
+   worse than no dictionary, because the user has to police it.
+3. **Three strikes, then it just works.** The same correction three times, and
+   the fourth dictation is right without anyone doing anything.
+4. **A failed write changes nothing**, and a corrupt `vocabulary.json` or
+   `corrections.jsonl` starts the app with an empty page and working dictation.
+
+---
+
 ## Done
 
-Piplo is finished when M1–M6 pass. The [do-not-implement
+Piplo is finished when M1–M7 pass. The [do-not-implement
 list](../CLAUDE.md#do-not-implement) is not a backlog — it is the boundary.
 
 ## Deliberate gaps
@@ -234,3 +281,11 @@ Known and accepted, not oversights:
   hundreds. The fix at that point is a windowed read, not a database.
 - **Unicode `SendInput` can be dropped** by games and some DirectInput apps. The
   fallback would be clipboard + `Ctrl+V`; the seam for it is `insert.rs`.
+- **Vocabulary only learns from corrections made inside Piplo.** Fixing the text
+  in the document it was typed into teaches nothing. Seeing that edit would mean
+  a keyboard hook or per-app accessibility reads, and
+  [neither is worth it](VOCABULARY.md#why-not-watch-the-users-own-app).
+- **The learned-term filter is deliberately biased toward missing things.** An
+  all-lowercase name like `shadcn` is suggested but never auto-learned. Loosening
+  it to catch those also catches ordinary content edits, and a polluted
+  dictionary silently rewrites words in real documents.

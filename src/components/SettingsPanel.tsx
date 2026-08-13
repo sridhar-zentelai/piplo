@@ -74,6 +74,21 @@ export default function SettingsPanel() {
         />
       </Row>
 
+      {/* Only the learning half gets a switch. The words the user typed in do not
+          need one — a toggle that ignores what you typed is a worse control than
+          deleting the entry. */}
+      <Row
+        label="Learn from my corrections"
+        hint="When you fix a dictation in your history, Piplo works out which word it got wrong and remembers it after the third time. Nothing outside Piplo is watched."
+      >
+        <Switch
+          checked={settings.learnFromCorrections}
+          onCheckedChange={(learnFromCorrections) =>
+            void apply({ ...settings, learnFromCorrections })
+          }
+        />
+      </Row>
+
       <Row
         label="Show floating widget"
         hint="Off hides the chip. The shortcut keeps working and the pill still appears while you dictate."
