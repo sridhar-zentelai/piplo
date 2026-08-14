@@ -3,6 +3,7 @@ mod credentials;
 mod grammar;
 mod groq;
 mod history;
+mod http;
 mod insert;
 mod learn;
 mod menu;

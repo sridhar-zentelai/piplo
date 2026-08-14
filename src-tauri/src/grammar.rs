@@ -174,17 +174,13 @@ async fn request(api_key: &str, raw: &str, terms: &[String]) -> Option<String> {
         ],
     });
 
-    let client = match reqwest::Client::builder().timeout(TIMEOUT).build() {
-        Ok(client) => client,
-        Err(err) => {
-            eprintln!("piplo: grammar client: {err}");
-            return None;
-        }
-    };
-
-    let response = client
+    // Shared with transcription, so this second call of the dictation reuses the
+    // connection that one just opened and pays no handshake at all. The timeout is
+    // per request because the client is shared with the upload, which wants 60 s.
+    let response = crate::http::client()
         .post(format!("{BASE_URL}/openai/v1/chat/completions"))
         .bearer_auth(api_key)
+        .timeout(TIMEOUT)
         .json(&body)
         .send()
         .await;

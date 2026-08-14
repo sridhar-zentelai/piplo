@@ -98,14 +98,14 @@ pub async fn transcribe(
         form = form.text("prompt", hint);
     }
 
-    let client = reqwest::Client::builder()
-        .timeout(TIMEOUT)
-        .build()
-        .map_err(|err| GroqError::Network(err.to_string()))?;
-
-    let response = client
+    // Shared, so this request reuses the connection the warm-up opened while the
+    // user was still speaking. The timeout is set per request rather than on the
+    // client because the client is shared with grammar, which wants a much
+    // shorter one.
+    let response = crate::http::client()
         .post(format!("{BASE_URL}/openai/v1/audio/transcriptions"))
         .bearer_auth(api_key)
+        .timeout(TIMEOUT)
         .multipart(form)
         .send()
         .await

@@ -149,6 +149,11 @@ pub fn start(app: &AppHandle, trigger: Trigger) {
             });
             drop(slot);
 
+            // Open the Groq connection while the user is still speaking, so the
+            // upload that follows does not pay for the handshake. Fire-and-forget
+            // — nothing below waits on it.
+            crate::http::warm(app);
+
             widen(app);
             set_status(app, Status::Recording);
             println!("piplo: session start ({trigger:?})");

@@ -54,6 +54,11 @@ uuid = { version = "1", features = ["v4"] }
 # http://tauri.localhost is not a secure context.
 tauri-plugin-clipboard-manager = "2"
 
+# Only the `latency_ab` example needs a runtime of its own; the app itself uses
+# Tauri's. Dev-only, so nothing here reaches a release build.
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+
 [target.'cfg(target_os = "macos")'.dependencies]
 # The macOS half of platform.rs and insert.rs. All four already ship inside
 # Tauri's own dependency tree at these versions, so this pins what is there
