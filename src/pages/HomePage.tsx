@@ -118,6 +118,7 @@ export default function HomePage() {
                 key={entry.id}
                 entry={entry}
                 onCorrected={() => void refresh()}
+                onDeleted={() => void refresh()}
               />
             ))}
           </ul>

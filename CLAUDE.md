@@ -34,9 +34,7 @@ Piplo has **six** features and nothing else:
 Plus the surface they live on:
 
 - **Floating widget** — a chip that morphs into a recording pill
-- **Right-click menu** on the widget — dictate, grammar toggle, [undo the last
-  word fix](docs/VOCABULARY.md#undoing-a-fix-in-the-app-you-are-typing-in) when
-  there is one, open Piplo, quit
+- **Right-click menu** on the widget — dictate, grammar toggle, open Piplo, quit
 - **Tray icon** — open, quit
 
 ## DO NOT implement

@@ -28,7 +28,7 @@ const MAX_WORDS: usize = 3;
 /// Two is a coincidence, four is a user who has given up.
 const LEARN_AT: usize = 3;
 
-/// Shown under Suggested from here, with *Add* and *Never*.
+/// Shown under Suggested from here, with *Add* and *Delete*.
 const SUGGEST_AT: usize = 2;
 
 /// One correction: what was typed, and what the user made it.
@@ -49,9 +49,7 @@ pub struct Suggestion {
 /// What a correction did, so the row that was just edited can say so.
 ///
 /// `Counted` is deliberately silent in the UI — the first two occurrences are
-/// quiet by design. `Refused` is not: a correction that vanished with no
-/// explanation is the one outcome a user cannot make sense of, and the only one
-/// they can act on.
+/// quiet by design.
 #[derive(Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Outcome {
@@ -63,8 +61,6 @@ pub enum Outcome {
         from: String,
         count: usize,
     },
-    /// The pair was refused before — by *Never*, or by deleting it.
-    Refused { from: String, to: String },
 }
 
 /// One line per event, append-only — no read-modify-write on a file the user may
@@ -74,7 +70,7 @@ struct Event {
     at: String,
     from: String,
     to: String,
-    /// `observed` or `rejected`. Counts are derived from these.
+    /// `observed` or `cleared`. Counts are derived from these.
     status: String,
 }
 
@@ -143,7 +139,7 @@ pub fn looks_like_a_term(to: &str, from: &str, first_word: bool) -> bool {
     for word in to.split_whitespace() {
         let chars: Vec<char> = word.chars().collect();
 
-        // `ZentelAI`, `MongoDB`, `PostgreSQL`.
+        // `MongoDB`, `PostgreSQL`, `GitHub`.
         if chars.iter().skip(1).any(|c| c.is_uppercase()) {
             return true;
         }
@@ -181,32 +177,38 @@ fn tidy(words: &[&str]) -> String {
 
 /// Counted, not scored: a confidence float derived from a count is a number
 /// nobody can act on.
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone)]
 struct Tally {
     count: usize,
-    rejected: bool,
+    /// The spelling as it was written, kept because the lookup key is lowercased
+    /// and `MongoDB` is the entire point of the feature. Showing a suggestion — or
+    /// worse, creating an entry — from the key would type the term in the wrong
+    /// case, destroying the one thing vocabulary exists to preserve.
+    from: String,
+    to: String,
 }
 
 /// Derived by reading the ledger — the `observed` lines for a pair, unless a
-/// later `rejected` line supersedes them.
+/// later `cleared` line resets them to nothing.
 fn tallies(app: &AppHandle) -> HashMap<(String, String), Tally> {
     let mut tallies: HashMap<(String, String), Tally> = HashMap::new();
 
     for event in read(app) {
         let tally = tallies.entry(key(&event.from, &event.to)).or_default();
 
+        // The most recent spelling wins: it is the one the user last typed, and on
+        // the `to` side that is the casing they want in their documents.
+        tally.from = event.from.trim().to_string();
+        tally.to = event.to.trim().to_string();
+
         match event.status.as_str() {
             "observed" => tally.count += 1,
-            "rejected" => {
-                *tally = Tally {
-                    count: 0,
-                    rejected: true,
-                }
-            }
-            // An explicit add is consent, and it supersedes an earlier refusal —
-            // otherwise "no" is permanent with no way back, and a user who
-            // deleted a word to start over can never teach it again.
-            "accepted" => tally.rejected = false,
+            // Forgetting, not blocking. Nothing here can put a pair beyond reach:
+            // if the same correction keeps happening it earns its way back, which
+            // is the behaviour a *delete* button promises. `rejected` and
+            // `accepted` are the old blocking statuses, read the same way so an
+            // existing ledger keeps working — and stops blocking anything.
+            "cleared" | "rejected" | "accepted" => tally.count = 0,
             other => eprintln!("piplo: unknown correction status {other:?}"),
         }
     }
@@ -214,9 +216,31 @@ fn tallies(app: &AppHandle) -> HashMap<(String, String), Tally> {
     tallies
 }
 
-/// Pairs are compared normalized, so "Gentle AI" and "gentle ai" are one pair.
+/// Pairs are compared normalized, so "Mango DB" and "mango db" are one pair.
 fn key(from: &str, to: &str) -> (String, String) {
     (from.trim().to_lowercase(), to.trim().to_lowercase())
+}
+
+/// Every correction **to this term**, whatever Whisper spelled it as, ignoring
+/// pairs whose count has been cleared.
+///
+/// This is the count that decides. Counting one exact mishearing was too strict to
+/// ever fire in practice: Whisper produces a different spelling almost every time —
+/// `Mango`, `Mango D B`, `manga DB`, `Mango DB` — so nine corrections to the same
+/// brand name sat as five separate pairs, none of them reaching three, and nothing
+/// was ever learned. The user's evidence is about the **word they want**, not about
+/// which way it came out wrong.
+///
+/// Each variant is still recorded, applied and removable on its own. Only the
+/// threshold is shared.
+fn term_total(tallies: &HashMap<(String, String), Tally>, to: &str) -> usize {
+    let wanted = to.trim().to_lowercase();
+
+    tallies
+        .iter()
+        .filter(|((_, term), _)| *term == wanted)
+        .map(|(_, tally)| tally.count)
+        .sum()
 }
 
 /// Record one correction, and promote it once it has been seen three times.
@@ -229,29 +253,23 @@ pub fn record(app: &AppHandle, typed: &str, edited: &str) -> Outcome {
         return Outcome::Nothing;
     };
 
-    let tally = tallies(app)
+    let tallies = tallies(app);
+    let tally = tallies
         .get(&key(&mapping.from, &mapping.to))
-        .copied()
+        .cloned()
         .unwrap_or_default();
-
-    // A pair the user already said no to is not counted again — but they are told
-    // so, and offered the way back.
-    if tally.rejected {
-        println!("piplo: ignoring a rejected correction — {}", mapping.from);
-        return Outcome::Refused {
-            from: mapping.from,
-            to: mapping.to,
-        };
-    }
 
     if let Err(err) = append(app, &mapping, "observed") {
         eprintln!("piplo: could not record the correction: {err}");
         return Outcome::Nothing;
     }
 
-    let count = tally.count + 1;
+    let seen = tally.count + 1;
+    // This correction is not in the ledger snapshot yet.
+    let count = term_total(&tallies, &mapping.to) + 1;
+
     println!(
-        "piplo: correction {} → {} (seen {count})",
+        "piplo: correction {} → {} (this spelling {seen}, the word {count})",
         mapping.from, mapping.to
     );
 
@@ -272,17 +290,26 @@ pub fn record(app: &AppHandle, typed: &str, edited: &str) -> Outcome {
     }
 }
 
-/// Pairs seen twice that are neither rejected nor already in the dictionary.
+/// Pairs worth asking about: seen twice themselves, or once for a word the user has
+/// already corrected before. Never one already saved, and never one whose count has
+/// been cleared.
+///
+/// The spellings come from the ledger, not from the lookup key — a suggestion that
+/// offered `mongodb` would be offering the wrong word.
 pub fn suggestions(app: &AppHandle) -> Vec<Suggestion> {
     let entries = vocabulary::snapshot(app);
+    let tallies = tallies(app);
 
-    let mut found: Vec<Suggestion> = tallies(app)
-        .into_iter()
-        .filter(|(_, tally)| !tally.rejected && tally.count >= SUGGEST_AT)
-        .filter(|((from, to), _)| !vocabulary::has_variant(&entries, to, from))
-        .map(|((from, to), tally)| Suggestion {
-            from,
-            to,
+    let mut found: Vec<Suggestion> = tallies
+        .values()
+        .filter(|tally| tally.count > 0)
+        .filter(|tally| {
+            tally.count >= SUGGEST_AT || term_total(&tallies, &tally.to) >= SUGGEST_AT
+        })
+        .filter(|tally| !vocabulary::has_variant(&entries, &tally.to, &tally.from))
+        .map(|tally| Suggestion {
+            from: tally.from.clone(),
+            to: tally.to.clone(),
             count: tally.count,
         })
         .collect();
@@ -293,89 +320,36 @@ pub fn suggestions(app: &AppHandle) -> Vec<Suggestion> {
     found
 }
 
-/// *Never*, and *Undo* on a row that just learned something. Removes the variant
-/// if it is already in the dictionary, so the two are one action.
-pub fn reject(app: &AppHandle, mapping: &Mapping) -> Result<(), String> {
-    append(app, mapping, "rejected")?;
+/// Forget a pair: drop the variant if it is saved, and reset its count so the
+/// suggestion goes away.
+///
+/// **Delete, not block.** An earlier version made this a permanent refusal, so a
+/// pair could never be learned again — which meant deleting one while experimenting
+/// quietly cost the user the feature for that word, with no way back and nothing on
+/// screen to explain it. Now the same correction happening again simply earns its
+/// way back, which is what a delete button promises and all it promises.
+pub fn forget(app: &AppHandle, mapping: &Mapping) -> Result<(), String> {
+    append(app, mapping, "cleared")?;
 
     if let Err(err) = vocabulary::remove_variant(app, &mapping.to, &mapping.from) {
-        eprintln!("piplo: could not remove the rejected variant: {err}");
+        eprintln!("piplo: could not remove the variant: {err}");
     }
 
     Ok(())
 }
 
-/// Deleting a variant is the answer to "how do I undo this?", so it also writes
-/// the rejection — otherwise the next correction brings it straight back, which is
-/// the first thing anyone asks after deleting one.
-///
-/// **Only for pairs Piplo actually put in front of the user** — suggested or
-/// learned. Below that threshold the pair has never been shown or applied, so
-/// there is nothing to undo, and rejecting it would silently blacklist a
-/// correction Piplo has not even offered yet. Deleting a hand-typed variant, or an
-/// entry created while experimenting, must not cost the user the feature for that
-/// word permanently and invisibly.
-///
-/// Called from the vocabulary commands. It is the one call in the other direction,
-/// and it cannot change what a dictation does.
-pub fn forget(app: &AppHandle, term: &str, variants: &[String]) {
-    if variants.is_empty() {
-        return;
-    }
-
-    let tallies = tallies(app);
-
+/// The same, for every variant of an entry being edited or deleted. Called from the
+/// vocabulary commands — the one call in that direction, and it cannot change what
+/// a dictation does.
+pub fn forget_all(app: &AppHandle, term: &str, variants: &[String]) {
     for variant in variants {
         let mapping = Mapping {
             from: variant.clone(),
             to: term.to_string(),
         };
 
-        let surfaced = tallies
-            .get(&key(&mapping.from, &mapping.to))
-            .is_some_and(|tally| tally.count >= SUGGEST_AT);
-
-        if !surfaced {
-            continue;
-        }
-
-        if let Err(err) = append(app, &mapping, "rejected") {
-            eprintln!("piplo: could not record the rejection: {err}");
-        }
-    }
-}
-
-/// The user asked for this pair outright — from the Vocabulary form, or *Add* on a
-/// suggestion. Recorded so an earlier refusal stops applying: "never" has to be
-/// reversible, or deleting a word to start over locks it out for good.
-///
-/// Only written for pairs that were actually refused, so the ledger does not fill
-/// with a line per hand-typed variant.
-pub fn allow(app: &AppHandle, term: &str, variants: &[String]) {
-    if variants.is_empty() {
-        return;
-    }
-
-    let tallies = tallies(app);
-
-    for variant in variants {
-        let mapping = Mapping {
-            from: variant.clone(),
-            to: term.to_string(),
-        };
-
-        let refused = tallies
-            .get(&key(&mapping.from, &mapping.to))
-            .is_some_and(|tally| tally.rejected);
-
-        if !refused {
-            continue;
-        }
-
-        println!("piplo: allowing {} → {} again", mapping.from, mapping.to);
-
-        if let Err(err) = append(app, &mapping, "accepted") {
-            eprintln!("piplo: could not record the acceptance: {err}");
+        if let Err(err) = append(app, &mapping, "cleared") {
+            eprintln!("piplo: could not record the deletion: {err}");
         }
     }
 }
@@ -474,15 +448,13 @@ pub fn accept_suggestion(
     app: AppHandle,
     mapping: Mapping,
 ) -> Result<Vec<vocabulary::Entry>, String> {
-    let entries = vocabulary::add_variant(&app, &mapping.to, &mapping.from)?;
-    allow(&app, &mapping.to, std::slice::from_ref(&mapping.from));
-    Ok(entries)
+    vocabulary::add_variant(&app, &mapping.to, &mapping.from)
 }
 
-/// *Never*, and *Undo*.
+/// *Delete* on a suggestion, and *Undo* on a row that just learned something.
 #[tauri::command]
 pub fn reject_suggestion(app: AppHandle, mapping: Mapping) -> Result<Vec<Suggestion>, String> {
-    reject(&app, &mapping)?;
+    forget(&app, &mapping)?;
     Ok(suggestions(&app))
 }
 
@@ -493,10 +465,10 @@ mod tests {
     #[test]
     fn extracts_the_span_between_a_common_prefix_and_suffix() {
         assert_eq!(
-            candidate("I worked with gentle AI on Monday", "I worked with ZentelAI on Monday"),
+            candidate("I worked with mango DB on Monday", "I worked with MongoDB on Monday"),
             Some(Mapping {
-                from: "gentle AI".into(),
-                to: "ZentelAI".into()
+                from: "mango DB".into(),
+                to: "MongoDB".into()
             })
         );
     }
@@ -504,10 +476,10 @@ mod tests {
     #[test]
     fn ignores_the_punctuation_at_the_edges() {
         assert_eq!(
-            candidate("I need to check gentle AI.", "I need to check ZentelAI."),
+            candidate("I need to check mango DB.", "I need to check MongoDB."),
             Some(Mapping {
-                from: "gentle AI".into(),
-                to: "ZentelAI".into()
+                from: "mango DB".into(),
+                to: "MongoDB".into()
             })
         );
     }
@@ -575,9 +547,76 @@ mod tests {
         assert!(candidate("the orm is prism", "the orm is Prisma").is_some());
     }
 
+    fn tallied(events: &[(&str, &str, &str)]) -> HashMap<(String, String), Tally> {
+        let mut tallies: HashMap<(String, String), Tally> = HashMap::new();
+
+        for (from, to, status) in events {
+            let tally = tallies.entry(key(from, to)).or_default();
+            tally.from = from.to_string();
+            tally.to = to.to_string();
+
+            match *status {
+                "observed" => tally.count += 1,
+                _ => tally.count = 0,
+            }
+        }
+
+        tallies
+    }
+
+    /// The bug this rule exists for: Whisper spells the same mistake differently
+    /// almost every time, so counting one exact pair never reached the threshold no
+    /// matter how often the user corrected the word.
+    #[test]
+    fn evidence_is_counted_for_the_word_not_the_mishearing() {
+        let tallies = tallied(&[
+            ("Mango", "MongoDB", "observed"),
+            ("Mango D B", "MongoDB", "observed"),
+            ("manga DB", "MongoDB", "observed"),
+        ]);
+
+        // Three spellings, one each — and nine would still have been none.
+        assert_eq!(term_total(&tallies, "MongoDB"), 3);
+        assert_eq!(term_total(&tallies, "mongodb"), 3, "compared normalized");
+        assert_eq!(term_total(&tallies, "Prisma"), 0);
+    }
+
+    #[test]
+    fn a_deleted_pair_is_not_evidence_for_its_term() {
+        let tallies = tallied(&[
+            ("mango", "MongoDB", "observed"),
+            ("mango", "MongoDB", "observed"),
+            ("mango", "MongoDB", "cleared"),
+            ("Mango D B", "MongoDB", "observed"),
+        ]);
+
+        // Deleting one spelling must not push another one over the line.
+        assert_eq!(term_total(&tallies, "MongoDB"), 1);
+
+        // But it is only forgotten, never blocked: correcting it again counts.
+        let again = tallied(&[
+            ("mango", "MongoDB", "observed"),
+            ("mango", "MongoDB", "cleared"),
+            ("mango", "MongoDB", "observed"),
+        ]);
+
+        assert_eq!(term_total(&again, "MongoDB"), 1);
+    }
+
+    /// A suggestion built from the lookup key would offer `mongodb`, which is the
+    /// wrong word — the casing is the whole reason the entry exists.
+    #[test]
+    fn the_ledger_keeps_the_spelling_the_user_typed() {
+        let tallies = tallied(&[("Mango DB", "MongoDB", "observed")]);
+        let tally = &tallies[&key("mango db", "mongodb")];
+
+        assert_eq!(tally.to, "MongoDB");
+        assert_eq!(tally.from, "Mango DB");
+    }
+
     #[test]
     fn the_term_test_reads_the_replacement_not_the_original() {
-        assert!(looks_like_a_term("ZentelAI", "gentle AI", false));
+        assert!(looks_like_a_term("MongoDB", "mango DB", false));
         assert!(looks_like_a_term("Next.js", "next js", true));
         assert!(!looks_like_a_term("last night", "yesterday", false));
         assert!(!looks_like_a_term("Prisma", "prism", true));

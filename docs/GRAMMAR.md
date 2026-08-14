@@ -195,10 +195,28 @@ than one.
 | Control | Where | Effect |
 | ------- | ----- | ------ |
 | **Automatic grammar correction** | Settings page, right-click menu | The normal on/off. Read on every dictation, so it applies to the next one immediately |
+| **`Ctrl+Alt+G`** | Anywhere | Undo the cleanup on the dictation just typed — see below |
 | `PIPLO_GRAMMAR=0` | `.env` | Forced bypass. Not in the UI — a way to A/B the feature and rule it out when debugging a bad transcription |
 | `PIPLO_GRAMMAR_MODEL` | `.env` | Override the model id |
 
 The setting is read from `settings.rs` inside `deliver`, not cached at startup.
+
+### Undoing the cleanup after the fact
+
+The toggle is a decision made before you speak; this one is made after you read
+what was typed. `Ctrl+Alt+G` (`Cmd+Alt+G` on macOS) rubs out the last dictation and
+types it as it was spoken instead. Press it again and the cleanup comes back.
+
+It shares its machinery with the
+[word-fix undo](VOCABULARY.md#undoing-a-fix-in-the-app-you-are-typing-in), and the
+two are **independent**: undoing the cleanup leaves a word fix in force, and vice
+versa. Both intermediate texts — as heard, and as it went into grammar — are kept
+for the last dictation, so every combination is the exact text rather than a text
+patched step by step.
+
+Offered only when there is something to undo: a dictation grammar left alone, a
+[snippet](SNIPPETS.md) expansion, and anything that had to be
+[rescued to the clipboard](TRANSCRIBE.md) all decline it.
 
 ---
 

@@ -40,7 +40,7 @@ const FILTERS: { id: Filter; label: string }[] = [
 /** Only on the nothing-yet state. In the `variant → term` shape, because that is
  *  the shape of the thing being explained. */
 const EXAMPLES: [string, string][] = [
-  ["gentle AI", "ZentelAI"],
+  ["mango DB", "MongoDB"],
   ["next JS", "Next.js"],
   ["prism", "Prisma"],
 ];
@@ -89,7 +89,7 @@ export default function VocabularyPage() {
         : entries.filter((entry) => entry.source === filter);
 
     // The variants matter more than the term here: the user just saw the
-    // mistake, so searching "gentle" has to find ZentelAI.
+    // mistake, so searching "mango" has to find MongoDB.
     const found = needle
       ? kept.filter(
           (entry) =>
@@ -161,7 +161,9 @@ export default function VocabularyPage() {
     }
   }
 
-  async function refuse(suggestion: Suggestion) {
+  /** *Delete* — forgets the suggestion. Not a block: if Piplo keeps hearing it the
+   *  same way, it comes back. */
+  async function forget(suggestion: Suggestion) {
     try {
       setSuggestions(
         await rejectSuggestion({ from: suggestion.from, to: suggestion.to }),
@@ -241,12 +243,16 @@ export default function VocabularyPage() {
                       <Button size="xs" onClick={() => void accept(suggestion)}>
                         Add
                       </Button>
+                      {/* Delete, not "never": it forgets the suggestion rather
+                          than blocking the pair for good. If Piplo keeps hearing
+                          it wrong the same way, it earns its way back. */}
                       <Button
                         variant="ghost"
                         size="xs"
-                        onClick={() => void refuse(suggestion)}
+                        title="Forget this suggestion"
+                        onClick={() => void forget(suggestion)}
                       >
-                        Never
+                        Delete
                       </Button>
                     </div>
                   </li>

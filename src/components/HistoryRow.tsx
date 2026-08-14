@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { Check, Copy, Pencil, Sparkles } from "lucide-react";
+import { Check, Copy, Pencil, Sparkles, Trash2 } from "lucide-react";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { Button } from "@/components/ui/button";
 import {
-  acceptSuggestion,
+  deleteEntry,
   recordCorrection,
   rejectSuggestion,
   type HistoryEntry,
@@ -15,21 +15,29 @@ import { cn } from "@/lib/utils";
 export default function HistoryRow({
   entry,
   onCorrected,
+  onDeleted,
 }: {
   entry: HistoryEntry;
   /** Re-fetch, so the row shows the corrected text rather than the old one. */
   onCorrected: () => void;
+  /** Re-fetch, so the row goes and the pages below it close up. */
+  onDeleted: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   /** Survives the form closing: the note belongs where the correction was made,
    *  and it stays until the row is collapsed. */
   const [outcome, setOutcome] = useState<Outcome | null>(null);
 
-  /** `text` is what was typed into the application and never changes. A row the
-   *  user has fixed shows their version — that is the copy they came back for. */
-  const shown = entry.edited ?? entry.text;
+  const versions = versionsOf(entry);
+  const [version, setVersion] = useState(versions[0].id);
+
+  /** The version being looked at — and the one Copy takes. A row the user has
+   *  fixed opens on their own text, because that is the copy they came back for. */
+  const shown =
+    versions.find((option) => option.id === version)?.value ?? entry.text;
 
   async function copy() {
     try {
@@ -45,6 +53,23 @@ export default function HistoryRow({
     }
   }
 
+  async function remove() {
+    if (deleting) return;
+
+    setDeleting(true);
+
+    try {
+      await deleteEntry(entry.id);
+      onDeleted();
+    } catch (error) {
+      // Swallowed on purpose: the re-fetch is what says whether the row
+      // survived, and that is more use than an error the user cannot act on.
+      console.error("[piplo] could not delete that dictation", error);
+      setDeleting(false);
+      onDeleted();
+    }
+  }
+
   if (editing) {
     return (
       <CorrectionForm
@@ -54,6 +79,9 @@ export default function HistoryRow({
         onSaved={(result) => {
           setEditing(false);
           setOutcome(result);
+          // The row now has a version it did not have a moment ago, and it is the
+          // one the user just wrote.
+          setVersion("yours");
           onCorrected();
         }}
       />
@@ -111,22 +139,120 @@ export default function HistoryRow({
               <Copy className="size-4" />
             )}
           </button>
+
+          {/* No confirmation, unlike Clear all: one row is a small enough loss
+              that a dialog costs more than it protects. */}
+          <button
+            type="button"
+            onClick={() => void remove()}
+            disabled={deleting}
+            aria-label="Delete this dictation"
+            title="Delete"
+            className="rounded-md p-1.5 text-muted-foreground opacity-0 transition-all hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 disabled:opacity-40 group-hover:opacity-100"
+          >
+            <Trash2 className="size-4" />
+          </button>
         </div>
       </div>
 
-      <p className="mt-2 font-mono text-[11px] text-muted-foreground/70">
-        {relativeTime(entry.at)}
-        {" · "}
-        {entry.duration_secs.toFixed(1)}s
-        {entry.language ? ` · ${entry.language}` : ""}
-        {entry.edited ? " · fixed" : ""}
-      </p>
+      <div className="mt-2 flex items-center justify-between gap-3">
+        <p className="min-w-0 truncate font-mono text-[11px] text-muted-foreground/70">
+          {relativeTime(entry.at)}
+          {" · "}
+          {entry.duration_secs.toFixed(1)}s
+          {entry.language ? ` · ${entry.language}` : ""}
+          {entry.edited ? " · fixed" : ""}
+        </p>
+
+        {/* Always visible when the row has more than one version, and in the
+            metadata line rather than a row of its own: a switch that only appears
+            once you have expanded the row is a switch nobody finds. Reserving no
+            extra height keeps hover from reflowing the list. */}
+        {versions.length > 1 && (
+          <div
+            role="group"
+            aria-label="Which version to show"
+            className="flex shrink-0 items-center gap-0.5 rounded-md border border-input bg-white/[0.04] p-0.5"
+          >
+            {versions.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => setVersion(option.id)}
+                aria-pressed={version === option.id}
+                title={option.hint}
+                className={cn(
+                  "rounded px-1.5 py-0.5 font-sans text-[11px] transition-colors outline-none focus-visible:text-foreground",
+                  version === option.id
+                    ? "bg-white/[0.10] text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
 
       {outcome && (
         <OutcomeNote outcome={outcome} onDone={() => setOutcome(null)} />
       )}
     </li>
   );
+}
+
+/** One thing this dictation has been: what was heard, what was typed, what the
+ *  user made of it. */
+interface Version {
+  id: "yours" | "typed" | "original";
+  label: string;
+  hint: string;
+  value: string;
+}
+
+/**
+ * The versions this row actually has, newest first.
+ *
+ * Nothing is stored for this — `raw_text` has always held what Whisper said,
+ * kept only when it differs from what was typed, and `edited` holds the user's
+ * own correction. This just makes both reachable, so "give me my words, not the
+ * cleaned-up ones" is a click rather than a lost cause.
+ *
+ * `typed` is always present and is the one guarantee the log has: it is what went
+ * into the application, whatever else happened.
+ */
+function versionsOf(entry: HistoryEntry): Version[] {
+  const versions: Version[] = [];
+
+  if (entry.edited) {
+    versions.push({
+      id: "yours",
+      label: "Yours",
+      hint: "Your correction, made here",
+      value: entry.edited,
+    });
+  }
+
+  versions.push({
+    id: "typed",
+    label: entry.corrected || entry.vocabulary ? "Cleaned" : "Typed",
+    hint: "What Piplo typed into your app",
+    value: entry.text,
+  });
+
+  if (entry.raw_text) {
+    versions.push({
+      id: "original",
+      label: "Original",
+      hint: entry.snippet
+        ? "The trigger you said"
+        : "Your words, before grammar and vocabulary",
+      value: entry.raw_text,
+    });
+  }
+
+  return versions;
 }
 
 /**
@@ -158,33 +284,6 @@ function OutcomeNote({
       console.error("[piplo] could not change the learned variant", error);
       setBusy(false);
     }
-  }
-
-  if (outcome.kind === "refused") {
-    /* Said out loud, because the alternative is a correction that silently does
-       nothing forever and a user who cannot tell why. */
-    return (
-      <div className="mt-2.5 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-white/[0.03] px-2.5 py-2">
-        <p className="min-w-0 font-sans text-xs text-muted-foreground">
-          Not learned — you removed{" "}
-          <span className="font-mono text-foreground">{outcome.from}</span>{" "}
-          before.
-        </p>
-        <Button
-          variant="ghost"
-          size="xs"
-          className="ml-auto"
-          disabled={busy}
-          onClick={() =>
-            void act(() =>
-              acceptSuggestion({ from: outcome.from, to: outcome.to }),
-            )
-          }
-        >
-          Learn it anyway
-        </Button>
-      </div>
-    );
   }
 
   return (

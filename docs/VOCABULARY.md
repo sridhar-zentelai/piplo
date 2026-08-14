@@ -308,23 +308,26 @@ the risk: `gently` → `ZentelAI` is right in "I need to go gently" and wrong in
 need to act like gently". No filter can tell those apart, because the difference is
 what the sentence means.
 
-So the widget's [right-click menu](WIDGET.md#right-click-menu) gains a fifth item,
-and only when there is something to offer:
+So there is **`Ctrl+Alt+Z`** (`Cmd+Alt+Z` on macOS): it rubs out what Piplo typed —
+`SendInput` backspaces, the same synthesised input as typing — and types the version
+with the terms put back. Press it again and the fix returns, so one chord is both
+undo and redo.
 
-```
-↺  Undo  ZentelAI → gently
-```
+**A shortcut and nothing else.** There was a widget-menu item too, and it was
+removed: undoing a replacement is something you do while looking at the text, and
+reaching for the widget means moving the mouse away from it — so the menu row was a
+worse way to do the same thing, taking up a fifth of a four-item menu and
+truncating the words it was trying to show. Fixed chord rather than a fifth
+[setting](SETTINGS.md#other-shortcuts-listed-not-set) — it is listed there
+read-only instead — and registered on key release so holding it cannot flip the text
+back and forth. A chord another app already owns is shown as unavailable rather than
+promised; the replacement still works, and the Vocabulary page can still remove the
+rule.
 
-It rubs out what Piplo typed — `SendInput` backspaces, the same synthesised input
-as typing — and types the version with the terms put back. Pressing it again puts
-the fix back, so it is an undo and a redo in one row.
-
-**`Ctrl+Alt+Z`** (`Cmd+Alt+Z` on macOS) does the same thing without leaving the
-document, which is where the action actually wants to be used — reaching for the
-widget means moving the mouse away from the text you are looking at. Fixed rather
-than a fifth setting, and registered on release so holding it cannot flip the text
-back and forth. A chord another app already owns is logged and skipped: the menu
-item still works, so it costs a convenience rather than the feature.
+**Independent of the [grammar undo](GRAMMAR.md#undoing-the-cleanup-after-the-fact),**
+which is `Ctrl+Alt+G` and shares this machinery. Undoing the cleanup leaves a word
+fix in force and vice versa: they are separate judgements, because the cleanup can
+be wrong where the replacement was right.
 
 **It refuses to type into Piplo.** Synthesised keystrokes go wherever focus is, so
 if Piplo's own window is in front the undo would rub out part of the history list.

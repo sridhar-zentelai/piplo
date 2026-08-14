@@ -6,22 +6,14 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition};
+use tauri::{AppHandle, Emitter, Manager, PhysicalPosition};
 
-use crate::{platform, session, widget};
+use crate::{platform, widget};
 
 pub const LABEL: &str = "menu";
 
 /// Gap between the widget and the menu, in logical pixels.
 const GAP: f64 = 10.0;
-
-/// The four permanent items, matching `tauri.conf.json`.
-const WIDTH: f64 = 236.0;
-const HEIGHT: f64 = 172.0;
-
-/// One more row, for the word-fix undo when there is one to offer. The window has
-/// to be told: it is frameless and fixed, so the item would otherwise be clipped.
-const ROW: f64 = 36.0;
 
 /// Frequent enough to feel instant, rare enough to cost nothing.
 const POLL: Duration = Duration::from_millis(40);
@@ -34,17 +26,6 @@ pub fn show(app: &AppHandle) {
         eprintln!("piplo: window '{LABEL}' missing from tauri.conf.json");
         return;
     };
-
-    // Sized before it is placed: the position is measured from the height.
-    let height = if session::has_word_fix(app) {
-        HEIGHT + ROW
-    } else {
-        HEIGHT
-    };
-
-    if let Err(err) = window.set_size(LogicalSize::new(WIDTH, height)) {
-        eprintln!("piplo: could not size the menu: {err}");
-    }
 
     place(app, &window);
 

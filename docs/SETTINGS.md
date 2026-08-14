@@ -15,6 +15,27 @@ one is out of [scope](../CLAUDE.md#do-not-implement).
 
 Implemented in `src-tauri/src/settings.rs` and `src/components/SettingsPanel.tsx`.
 
+## Other shortcuts, listed not set
+
+Below the settings, read-only:
+
+| Chord | What it does |
+| ----- | ------------ |
+| `Ctrl+Alt+Z` | [Undo the last word fix](VOCABULARY.md#undoing-a-fix-in-the-app-you-are-typing-in) |
+| `Ctrl+Alt+G` | [Undo the grammar cleanup](GRAMMAR.md#undoing-the-cleanup-after-the-fact) |
+
+`Cmd+Alt+Z` and `Cmd+Alt+G` on macOS.
+
+**Listed, because a shortcut nobody can find is a shortcut nobody uses.** Not
+editable, and not settings five and six: they are two chords that only mean
+anything in the seconds after a dictation, and a recorder for each would be more
+surface than the feature is worth.
+
+The list is built in `shortcut.rs` from the same constants that register the
+chords, so the page cannot promise something that is not bound — and `bound` is
+read back from the plugin, so a chord another app has claimed is shown struck
+through with a plain explanation rather than silently doing nothing.
+
 ---
 
 ## Where they live

@@ -34,7 +34,7 @@ export interface HistoryEntry {
  */
 export interface Term {
   id: string;
-  /** Typed verbatim — `ZentelAI`, `Next.js`. */
+  /** Typed verbatim — `MongoDB`, `Next.js`. */
   term: string;
   /** What Whisper says instead, replaced deterministically. */
   variants: string[];
@@ -54,7 +54,7 @@ export interface Mapping {
   to: string;
 }
 
-/** Mirrors `learn::Suggestion` — a pair seen twice, not yet accepted or refused. */
+/** Mirrors `learn::Suggestion` — a correction Piplo has seen enough of to ask about. */
 export interface Suggestion extends Mapping {
   count: number;
 }
@@ -63,14 +63,12 @@ export interface Suggestion extends Mapping {
  * Mirrors `learn::Outcome` — what a correction did.
  *
  * `counted` is deliberately silent in the UI: the first two occurrences are quiet
- * by design. `refused` is not — a correction that disappears with no explanation
- * is the one outcome a user cannot make sense of.
+ * by design.
  */
 export type Outcome =
   | { kind: "nothing" }
   | { kind: "counted"; count: number }
-  | { kind: "learned"; term: string; from: string; count: number }
-  | { kind: "refused"; from: string; to: string };
+  | { kind: "learned"; term: string; from: string; count: number };
 
 /** Mirrors `settings::Settings`. */
 export interface Settings {
@@ -142,32 +140,21 @@ export function cancelDictation(): Promise<void> {
   return invoke("cancel_dictation");
 }
 
-/** Mirrors `session::FixView`. */
-export interface WordFix {
-  /** The word on screen now. */
-  from: string;
-  /** What undoing would put there instead. */
-  to: string;
-  undone: boolean;
+/** Mirrors `shortcut::Binding` — one row of the read-only list in Settings. */
+export interface Binding {
+  accelerator: string;
+  label: string;
+  hint: string;
+  /** False when the system refused the chord, so the page can say so. */
+  bound: boolean;
 }
 
 /**
- * The vocabulary replacement in the last dictation, if there was one and it is
- * still the most recent thing Piplo typed. `null` when there is nothing to undo.
+ * The fixed shortcuts, straight from the Rust constants that register them — so
+ * the page cannot promise a chord that is not actually bound.
  */
-export function lastWordFix(): Promise<WordFix | null> {
-  return invoke("last_word_fix");
-}
-
-/**
- * Rub out what Piplo typed and put the other version in its place. Pressing it
- * again puts the fix back.
- *
- * Rejects with a message when the keystrokes could not be delivered. It assumes
- * the caret has not moved — Piplo never reads the target app to check.
- */
-export function undoWordFix(): Promise<void> {
-  return invoke("undo_word_fix");
+export function listShortcuts(): Promise<Binding[]> {
+  return invoke("list_shortcuts");
 }
 
 export function getSettings(): Promise<Settings> {
@@ -186,6 +173,11 @@ export function setSettings(settings: Settings): Promise<Settings> {
 /** Newest first. */
 export function getHistory(): Promise<HistoryEntry[]> {
   return invoke("get_history");
+}
+
+/** Rewrites the log without that row. Rejects if it has already gone. */
+export function deleteEntry(id: string): Promise<void> {
+  return invoke("delete_entry", { id });
 }
 
 export function clearHistory(): Promise<void> {
@@ -243,7 +235,7 @@ export function recordCorrection(id: string, edited: string): Promise<Outcome> {
   return invoke("record_correction", { id, edited });
 }
 
-/** Pairs seen twice that are neither refused nor already in the dictionary. */
+/** Corrections worth asking about, and not already in the dictionary. */
 export function listSuggestions(): Promise<Suggestion[]> {
   return invoke("list_suggestions");
 }
@@ -253,7 +245,12 @@ export function acceptSuggestion(mapping: Mapping): Promise<Term[]> {
   return invoke("accept_suggestion", { mapping });
 }
 
-/** *Never*, and *Undo*. Returns the remaining suggestions. */
+/**
+ * *Delete* on a suggestion, and *Undo* on a row that just learned something.
+ *
+ * Forgets the pair — drops the variant and clears its count. Not a block: the same
+ * correction happening again earns it back. Returns the remaining suggestions.
+ */
 export function rejectSuggestion(mapping: Mapping): Promise<Suggestion[]> {
   return invoke("reject_suggestion", { mapping });
 }

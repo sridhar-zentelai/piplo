@@ -21,7 +21,7 @@ const MAX_PROMPT: usize = 180;
 pub struct Entry {
     /// A uuid v4 minted on create. Empty on the way in means "this is new".
     pub id: String,
-    /// Written verbatim into the transcript — the entire point of `ZentelAI`.
+    /// Written verbatim into the transcript — the entire point of `MongoDB`.
     pub term: String,
     /// What Whisper says instead. Replaced deterministically.
     #[serde(default)]
@@ -103,7 +103,7 @@ pub fn apply_tracked(entries: &[Entry], text: &str) -> (String, Vec<Fired>) {
         return (text.to_string(), Vec::new());
     }
 
-    // `gentle AI studio` must beat `gentle AI` whatever order the file has them
+    // `mango DB atlas` must beat `mango DB` whatever order the file has them
     // in — list order may never decide a replacement.
     pairs.sort_by_key(|(variant, _)| std::cmp::Reverse(variant.len()));
 
@@ -496,25 +496,9 @@ pub fn save_term(app: AppHandle, entry: Entry) -> Result<Vec<Entry>, String> {
         }
     }
 
-    // Removing a variant by hand is how you undo a learned one, so it has to mean
-    // "and stop learning it" too — otherwise the next correction brings it
-    // straight back, which is the first thing anyone asks after deleting one.
-    // Typing a variant in is the user asking for it outright, so it also undoes an
-    // earlier refusal of that pair — see `learn::allow`.
-    let added: Vec<String> = match entries.iter().find(|other| other.id == entry.id) {
-        Some(existing) => variants
-            .iter()
-            .filter(|new| {
-                !existing
-                    .variants
-                    .iter()
-                    .any(|old| normalize(old) == normalize(new))
-            })
-            .cloned()
-            .collect(),
-        None => variants.clone(),
-    };
-
+    // Removing a variant by hand clears what the learner counted for it, so the
+    // suggestion does not reappear the moment it is deleted. It is not a block:
+    // correcting the same way again earns it back — see `learn::forget_all`.
     let dropped = match entries.iter().position(|other| other.id == entry.id) {
         Some(index) => {
             let dropped: Vec<String> = entries[index]
@@ -543,11 +527,9 @@ pub fn save_term(app: AppHandle, entry: Entry) -> Result<Vec<Entry>, String> {
 
     let saved = commit(&app, entries)?;
 
-    // After the write: a rejection for a variant that is still on disk, or an
-    // acceptance of one that failed to save, would be a lie about what the
-    // dictionary contains.
-    crate::learn::forget(&app, &term, &dropped);
-    crate::learn::allow(&app, &term, &added);
+    // After the write: clearing the count for a variant that is still on disk would
+    // be a lie about what the dictionary contains.
+    crate::learn::forget_all(&app, &term, &dropped);
 
     Ok(saved)
 }
@@ -556,8 +538,8 @@ pub fn save_term(app: AppHandle, entry: Entry) -> Result<Vec<Entry>, String> {
 pub fn delete_term(app: AppHandle, id: String) -> Result<Vec<Entry>, String> {
     let mut entries = app.state::<Store>().get();
 
-    // Same reasoning as an edit that drops a variant: deleting the entry has to
-    // stop the learning that would recreate it.
+    // Same as an edit that drops a variant: the counts go with it, so the entry
+    // does not come straight back as a suggestion.
     let gone = entries
         .iter()
         .find(|entry| entry.id == id)
@@ -567,7 +549,7 @@ pub fn delete_term(app: AppHandle, id: String) -> Result<Vec<Entry>, String> {
     let saved = commit(&app, entries)?;
 
     if let Some((term, variants)) = gone {
-        crate::learn::forget(&app, &term, &variants);
+        crate::learn::forget_all(&app, &term, &variants);
     }
 
     Ok(saved)
@@ -596,20 +578,20 @@ mod tests {
 
     #[test]
     fn replaces_a_variant_with_the_term_verbatim() {
-        let entries = vec![entry("ZentelAI", &["gentle AI"])];
-        let (text, changed) = apply(&entries, "I need to check gentle AI.");
+        let entries = vec![entry("MongoDB", &["mango DB"])];
+        let (text, changed) = apply(&entries, "I need to check mango DB.");
 
-        assert_eq!(text, "I need to check ZentelAI.");
+        assert_eq!(text, "I need to check MongoDB.");
         assert!(changed);
     }
 
     #[test]
     fn is_case_insensitive_going_in_and_exact_coming_out() {
-        let entries = vec![entry("ZentelAI", &["gentle ai"])];
+        let entries = vec![entry("MongoDB", &["mango db"])];
 
         assert_eq!(
-            apply(&entries, "Gentle AI and GENTLE AI.").0,
-            "ZentelAI and ZentelAI."
+            apply(&entries, "Mango DB and MANGO DB.").0,
+            "MongoDB and MongoDB."
         );
     }
 
@@ -625,30 +607,30 @@ mod tests {
 
     #[test]
     fn longest_variant_wins_whatever_the_order() {
-        let short = entry("ZentelAI", &["gentle AI"]);
-        let long = entry("ZentelAI Studio", &["gentle AI studio"]);
+        let short = entry("MongoDB", &["mango DB"]);
+        let long = entry("MongoDB Atlas", &["mango DB atlas"]);
 
         for entries in [
             vec![short.clone(), long.clone()],
             vec![long.clone(), short.clone()],
         ] {
             assert_eq!(
-                apply(&entries, "open gentle AI studio now").0,
-                "open ZentelAI Studio now"
+                apply(&entries, "open mango DB atlas now").0,
+                "open MongoDB Atlas now"
             );
         }
     }
 
     #[test]
     fn does_not_rescan_a_replaced_span() {
-        // `ZentelAI` contains `ai`, which is another entry's variant. Rescanning
-        // the output would cascade the replacement into the term it just wrote.
+        // `MongoDB` is itself another entry's variant. Rescanning the output would
+        // cascade the replacement into the term it just wrote.
         let entries = vec![
-            entry("ZentelAI", &["gentle AI"]),
-            entry("A.I.", &["zentelai"]),
+            entry("MongoDB", &["mango DB"]),
+            entry("Mongo Atlas", &["mongodb"]),
         ];
 
-        assert_eq!(apply(&entries, "check gentle AI").0, "check ZentelAI");
+        assert_eq!(apply(&entries, "check mango DB").0, "check MongoDB");
     }
 
     #[test]
@@ -662,10 +644,10 @@ mod tests {
 
     #[test]
     fn reports_no_change_when_the_text_already_reads_right() {
-        let entries = vec![entry("ZentelAI", &["Zentel AI"])];
+        let entries = vec![entry("MongoDB", &["Mongo DB"])];
 
-        assert!(!apply(&entries, "I checked ZentelAI today").1);
-        assert!(apply(&entries, "I checked Zentel AI today").1);
+        assert!(!apply(&entries, "I checked MongoDB today").1);
+        assert!(apply(&entries, "I checked Mongo DB today").1);
     }
 
     #[test]
@@ -679,17 +661,17 @@ mod tests {
 
     #[test]
     fn a_fix_can_be_put_back_exactly() {
-        let entries = vec![entry("ZentelAI", &["gently"])];
-        let (typed, fired) = apply_tracked(&entries, "I need to act like gently.");
+        let entries = vec![entry("MongoDB", &["mango"])];
+        let (typed, fired) = apply_tracked(&entries, "I need to act like mango.");
 
-        assert_eq!(typed, "I need to act like ZentelAI.");
+        assert_eq!(typed, "I need to act like MongoDB.");
 
         // Grammar runs in between, so the reversal works on its output — the
         // cleanup's changes have to survive, only the term goes back.
-        let cleaned = "I need to act like ZentelAI, please.";
+        let cleaned = "I need to act like MongoDB, please.";
         assert_eq!(
             revert(cleaned, &fired),
-            "I need to act like gently, please."
+            "I need to act like mango, please."
         );
 
         // Nothing fired, nothing to put back.
@@ -699,22 +681,22 @@ mod tests {
     #[test]
     fn reverting_leaves_other_words_alone() {
         let fired = vec![Fired {
-            variant: "gently".into(),
-            term: "ZentelAI".into(),
+            variant: "mango".into(),
+            term: "MongoDB".into(),
         }];
 
         // Whole words only, on the way back as well as forward.
         assert_eq!(
-            revert("ZentelAIx and ZentelAI", &fired),
-            "ZentelAIx and gently"
+            revert("MongoDBx and MongoDB", &fired),
+            "MongoDBx and mango"
         );
     }
 
     #[test]
     fn the_prompt_is_newest_first_and_capped() {
-        let entries = vec![entry("Piplo", &[]), entry("ZentelAI", &[])];
+        let entries = vec![entry("Piplo", &[]), entry("MongoDB", &[])];
 
-        assert_eq!(prompt(&entries), Some("ZentelAI, Piplo".into()));
+        assert_eq!(prompt(&entries), Some("MongoDB, Piplo".into()));
         assert_eq!(prompt(&[]), None);
 
         // Whole terms only, and never past the cap.
@@ -728,27 +710,27 @@ mod tests {
     #[test]
     fn only_the_terms_present_reach_grammar() {
         let entries = vec![
-            entry("ZentelAI", &[]),
+            entry("MongoDB", &[]),
             entry("Next.js", &[]),
             entry("Prisma", &[]),
         ];
 
         assert_eq!(
-            terms_in(&entries, "ZentelAI ships on next.js"),
-            vec!["ZentelAI".to_string(), "Next.js".to_string()]
+            terms_in(&entries, "MongoDB ships on next.js"),
+            vec!["MongoDB".to_string(), "Next.js".to_string()]
         );
         assert!(terms_in(&entries, "nothing familiar here").is_empty());
     }
 
     #[test]
     fn an_echoed_prompt_is_not_a_transcript() {
-        let hint = "ZentelAI, Piplo, Tauri";
+        let hint = "MongoDB, Piplo, Tauri";
 
-        assert!(echoed(hint, "ZentelAI, Piplo, Tauri."));
-        assert!(echoed(hint, "zentelai, piplo"));
+        assert!(echoed(hint, "MongoDB, Piplo, Tauri."));
+        assert!(echoed(hint, "mongodb, piplo"));
 
         // A real dictation of one term must still be typed.
-        assert!(!echoed(hint, "ZentelAI"));
-        assert!(!echoed(hint, "I need to check ZentelAI, then Piplo."));
+        assert!(!echoed(hint, "MongoDB"));
+        assert!(!echoed(hint, "I need to check MongoDB, then Piplo."));
     }
 }

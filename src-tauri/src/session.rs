@@ -66,13 +66,46 @@ pub struct Active(Mutex<Option<InFlight>>);
 /// back from the target application — Piplo only knows what it typed itself, which
 /// is why this is state here rather than an accessibility call.
 struct Fix {
+    /// Exactly what Whisper returned.
+    heard: String,
+    /// What went into grammar — the words as heard, with the terms applied.
+    pre_grammar: String,
+    /// What was actually typed, after both steps.
     typed: String,
-    reverted: String,
-    undone: bool,
-    /// For the menu's label. The first replacement is enough: one is the normal
-    /// case, and a list would not fit a menu row.
-    variant: String,
-    term: String,
+    /// The replacements that fired, so the terms can be put back without
+    /// discarding grammar's work.
+    fired: Vec<vocabulary::Fired>,
+    grammar_undone: bool,
+    vocabulary_undone: bool,
+}
+
+impl Fix {
+    /// What is on screen now.
+    fn text(&self) -> String {
+        self.text_with(self.grammar_undone, self.vocabulary_undone)
+    }
+
+    /// The four combinations, each computed exactly rather than approximated —
+    /// which is why both intermediate texts are kept rather than re-derived.
+    fn text_with(&self, grammar_undone: bool, vocabulary_undone: bool) -> String {
+        match (grammar_undone, vocabulary_undone) {
+            (false, false) => self.typed.clone(),
+            // Grammar's work survives; only the terms go back.
+            (false, true) => vocabulary::revert(&self.typed, &self.fired),
+            (true, false) => self.pre_grammar.clone(),
+            (true, true) => self.heard.clone(),
+        }
+    }
+
+    /// Whether there is anything to toggle. A dictation grammar left alone has no
+    /// cleanup to undo, and one with no replacement has no fix to undo.
+    fn has_grammar(&self) -> bool {
+        self.typed != self.pre_grammar
+    }
+
+    fn has_vocabulary(&self) -> bool {
+        !self.fired.is_empty()
+    }
 }
 
 #[derive(Default)]
@@ -85,18 +118,6 @@ impl LastFix {
             Err(poisoned) => poisoned.into_inner(),
         }
     }
-}
-
-/// What the menu needs to draw the item, or `None` when there is nothing to undo.
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FixView {
-    /// The word that is on screen now.
-    pub from: String,
-    /// What it would become.
-    pub to: String,
-    /// True once undone, so the item reads as a redo.
-    pub undone: bool,
 }
 
 impl Active {
@@ -302,7 +323,7 @@ async fn deliver(app: AppHandle, wav: Vec<u8>, generation: u64, seconds: f32) {
         println!("piplo: cleaned — {spoken}");
 
         // Again, because the cleanup sometimes puts the mistake back —
-        // `ZentelAI` → `Zentel AI` is the common one. An in-memory scan over a
+        // `MongoDB` → `Mongo DB` is the common one. An in-memory scan over a
         // few dozen strings, so the second pass costs nothing.
         let (fixed, again) = vocabulary::apply_tracked(&terms, &spoken);
 
@@ -347,8 +368,20 @@ async fn deliver(app: AppHandle, wav: Vec<u8>, generation: u64, seconds: f32) {
     let inserted = outcome == insert::Insert::Typed;
 
     // Only what Piplo typed itself, and only while it is the most recent thing it
-    // typed. A snippet expansion is not a word fix, so it is not offered.
-    remember_fix(&app, &text, &fired, inserted && !is_snippet);
+    // typed. A snippet expansion is canned text, not a cleanup or a fix, so
+    // nothing about it is offered.
+    remember_fix(
+        &app,
+        Fix {
+            heard: heard.clone(),
+            pre_grammar: raw.clone(),
+            typed: text.clone(),
+            fired,
+            grammar_undone: false,
+            vocabulary_undone: false,
+        },
+        inserted && !is_snippet,
+    );
 
     // Whisper's own words, not the corrected ones: `raw_text` is what was heard,
     // and the vocabulary pass is one of the things it should be compared against.
@@ -404,78 +437,58 @@ fn rescue(app: &AppHandle, text: &str, why: &str) {
 /// Cleared on any dictation that replaced nothing, because the offer is always
 /// about the *last* thing typed: leaving a stale one there would rub out text it
 /// did not write.
-fn remember_fix(app: &AppHandle, text: &str, fired: &[vocabulary::Fired], keep: bool) {
+fn remember_fix(app: &AppHandle, fix: Fix, keep: bool) {
     let state = app.state::<LastFix>();
     let mut slot = state.lock();
 
-    let Some(first) = fired.first().filter(|_| keep) else {
-        *slot = None;
-        return;
-    };
-
-    *slot = Some(Fix {
-        typed: text.to_string(),
-        reverted: vocabulary::revert(text, fired),
-        undone: false,
-        variant: first.variant.clone(),
-        term: first.term.clone(),
-    });
+    // Nothing to toggle is the same as nothing to remember, and leaving a stale
+    // one there would rub out text it did not write.
+    *slot = (keep && (fix.has_grammar() || fix.has_vocabulary())).then_some(fix);
 }
 
-/// Whether the menu has a fifth item to make room for.
-pub fn has_word_fix(app: &AppHandle) -> bool {
-    let state = app.state::<LastFix>();
-    let slot = state.lock();
-    slot.is_some()
+/// Which step a shortcut is toggling.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Step {
+    Grammar,
+    Vocabulary,
 }
 
-/// What the widget menu should offer, if anything.
-#[tauri::command]
-pub fn last_word_fix(app: AppHandle) -> Option<FixView> {
-    let state = app.state::<LastFix>();
-    let slot = state.lock();
-    let fix = slot.as_ref()?;
-
-    Some(if fix.undone {
-        FixView {
-            from: fix.variant.clone(),
-            to: fix.term.clone(),
-            undone: true,
-        }
-    } else {
-        FixView {
-            from: fix.term.clone(),
-            to: fix.variant.clone(),
-            undone: false,
-        }
-    })
+/// The two flags with one of them flipped. The other is left exactly as it is:
+/// undoing the cleanup must not quietly re-apply a word fix the user just undid.
+fn flipped(fix: &Fix, step: Step) -> (bool, bool) {
+    match step {
+        Step::Grammar => (!fix.grammar_undone, fix.vocabulary_undone),
+        Step::Vocabulary => (fix.grammar_undone, !fix.vocabulary_undone),
+    }
 }
 
-/// Rub out what Piplo typed and type the other version instead — the word Whisper
-/// actually heard, or the term again on a second press.
+/// Rub out what Piplo typed and type it without one of the two steps — the words
+/// as spoken instead of the cleaned-up version, or the mishearing instead of the
+/// term. Pressing again puts it back, so each chord is an undo and a redo.
 ///
-/// This assumes the caret has not moved since the dictation, which is why it is
-/// only ever offered for the most recent one and is worded as an undo of it. Piplo
-/// does not read the target application to check; that is the boundary the whole
-/// vocabulary feature is built against.
-#[tauri::command]
-pub async fn undo_word_fix(app: AppHandle) -> Result<(), String> {
-    toggle_word_fix(app).await
-}
-
-/// The shortcut's way in. Fire-and-forget: a hotkey has nobody to report to, so
-/// the reason lands in the log.
-pub fn toggle_from_shortcut(app: &AppHandle) {
+/// The two are independent: undoing the cleanup and undoing a word fix can both be
+/// in force, and the text is computed for whichever combination is current rather
+/// than patched step by step.
+///
+/// A shortcut is the only way in, and deliberately so: this is something you do
+/// while looking at the text, and reaching for the widget means moving the mouse
+/// away from it. Fire-and-forget — a hotkey has nobody to report to, so the reason
+/// lands in the log.
+///
+/// It assumes the caret has not moved since the dictation, which is why it only
+/// ever applies to the most recent one. Piplo does not read the target application
+/// to check; that is the boundary the whole feature is built against.
+pub fn toggle_from_shortcut(app: &AppHandle, step: Step) {
     let app = app.clone();
 
     tauri::async_runtime::spawn(async move {
-        if let Err(why) = toggle_word_fix(app).await {
-            eprintln!("piplo: could not undo the word fix — {why}");
+        if let Err(why) = toggle(app, step).await {
+            eprintln!("piplo: could not undo the {step:?} step — {why}");
         }
     });
 }
 
-async fn toggle_word_fix(app: AppHandle) -> Result<(), String> {
+async fn toggle(app: AppHandle, step: Step) -> Result<(), String> {
     // The keystrokes go wherever focus is. If that is Piplo's own window, the undo
     // would rub out part of the history list instead of the user's document.
     if crate::platform::foreground_is_ours() {
@@ -491,17 +504,22 @@ async fn toggle_word_fix(app: AppHandle) -> Result<(), String> {
         let slot = state.lock();
         let fix = slot.as_ref().ok_or("nothing to undo")?;
 
-        let on_screen = if fix.undone { &fix.reverted } else { &fix.typed };
-        let target = if fix.undone {
-            fix.typed.clone()
-        } else {
-            fix.reverted.clone()
-        };
+        match step {
+            Step::Grammar if !fix.has_grammar() => {
+                return Err("grammar changed nothing in that dictation".into())
+            }
+            Step::Vocabulary if !fix.has_vocabulary() => {
+                return Err("no word was replaced in that dictation".into())
+            }
+            _ => {}
+        }
 
-        (on_screen.chars().count(), target)
+        let (grammar, vocab) = flipped(fix, step);
+
+        (fix.text().chars().count(), fix.text_with(grammar, vocab))
     };
 
-    println!("piplo: word fix — erasing {count} chars, typing {target:?}");
+    println!("piplo: undo {step:?} — erasing {count} chars, typing {target:?}");
 
     // Blocking: it waits for modifiers and paces synthesised input.
     let typed = target.clone();
@@ -524,8 +542,19 @@ async fn toggle_word_fix(app: AppHandle) -> Result<(), String> {
     let mut slot = state.lock();
 
     if let Some(fix) = slot.as_mut() {
-        fix.undone = !fix.undone;
-        println!("piplo: word fix {} — {target}", if fix.undone { "undone" } else { "redone" });
+        let (grammar, vocab) = flipped(fix, step);
+        fix.grammar_undone = grammar;
+        fix.vocabulary_undone = vocab;
+
+        let undone = match step {
+            Step::Grammar => grammar,
+            Step::Vocabulary => vocab,
+        };
+
+        println!(
+            "piplo: {step:?} {} — {target}",
+            if undone { "undone" } else { "redone" }
+        );
     }
 
     Ok(())

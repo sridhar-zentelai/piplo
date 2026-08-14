@@ -226,7 +226,7 @@ export function TermForm({
             autoFocus
             spellCheck={false}
             autoComplete="off"
-            placeholder="ZentelAI"
+            placeholder="MongoDB"
             aria-label="Term"
             aria-invalid={error?.field === "term" || undefined}
             disabled={busy}
@@ -273,7 +273,7 @@ export function TermForm({
               value={variants}
               spellCheck={false}
               autoComplete="off"
-              placeholder="gentle AI, zentel ai"
+              placeholder="mango DB, mongo db"
               aria-label="Variants"
               aria-invalid={error?.field === "variants" || undefined}
               disabled={busy}

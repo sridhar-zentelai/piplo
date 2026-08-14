@@ -7,12 +7,15 @@ import {
   clearApiKey,
   getApiKeyStatus,
   getSettings,
+  listShortcuts,
   setApiKey,
   setSettings,
   type ApiKeyStatus,
+  type Binding,
   type Settings,
 } from "@/lib/commands";
 import { warningFor } from "@/lib/shortcuts";
+import { cn } from "@/lib/utils";
 
 export default function SettingsPanel() {
   const [settings, setLocal] = useState<Settings | null>(null);
@@ -102,6 +105,74 @@ export default function SettingsPanel() {
       </Row>
 
       <ApiKeyRow />
+      <ShortcutList />
+    </div>
+  );
+}
+
+/**
+ * The fixed shortcuts, read-only.
+ *
+ * Not editable, and not a fifth and sixth setting: they are two chords that only
+ * make sense right after a dictation, and a picker for each would be more surface
+ * than the feature is worth. Listed because a shortcut nobody can find is a
+ * shortcut nobody uses.
+ */
+function ShortcutList() {
+  const [bindings, setBindings] = useState<Binding[]>([]);
+
+  useEffect(() => {
+    void listShortcuts()
+      .then(setBindings)
+      .catch((error) =>
+        console.error("[piplo] could not read the shortcuts", error),
+      );
+  }, []);
+
+  if (bindings.length === 0) return null;
+
+  return (
+    <div className="py-5">
+      <p className="font-sans text-sm text-foreground">Other shortcuts</p>
+      <p className="mt-1 max-w-[420px] font-sans text-xs leading-relaxed text-muted-foreground">
+        Fixed, and they act on the last thing Piplo typed — press them while your
+        caret is still where the text landed.
+      </p>
+
+      <dl className="mt-3 flex flex-col gap-2.5">
+        {bindings.map((binding) => (
+          <div key={binding.accelerator} className="flex items-start gap-3">
+            {/* Fixed-width so the descriptions line up whatever the chord. */}
+            <dt className="w-[104px] shrink-0">
+              <kbd
+                className={cn(
+                  "rounded-md border border-input bg-white/[0.04] px-1.5 py-0.5 font-mono text-[11px]",
+                  binding.bound
+                    ? "text-foreground"
+                    : "text-muted-foreground/50 line-through",
+                )}
+              >
+                {binding.accelerator}
+              </kbd>
+            </dt>
+            <dd className="min-w-0">
+              <p className="font-sans text-xs text-foreground">
+                {binding.label}
+              </p>
+              <p className="mt-0.5 max-w-[380px] font-sans text-xs leading-relaxed text-muted-foreground">
+                {binding.hint}
+              </p>
+              {/* Said plainly rather than left to look broken: another app owns
+                  the chord, and Piplo cannot take it. */}
+              {!binding.bound && (
+                <p className="mt-1 font-sans text-xs text-muted-foreground">
+                  Another app has claimed this one, so it does nothing here.
+                </p>
+              )}
+            </dd>
+          </div>
+        ))}
+      </dl>
     </div>
   );
 }

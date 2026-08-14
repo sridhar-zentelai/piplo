@@ -90,18 +90,43 @@ Read from `history/history.jsonl` via `get_history`, newest first.
 - **Relative time** — "2 minutes ago", "yesterday", then an absolute date past a
   week. Computed on render from `at`.
 - **Duration** and **language** from the transcription metadata.
-- **Copy** button → `@tauri-apps/plugin-clipboard-manager`.
+- **Copy** button → `@tauri-apps/plugin-clipboard-manager`. Copies the
+  [version being shown](#which-version).
 - **Fix it here** → the [correction form](#correcting-a-row).
+- **Delete** → the row only, no confirmation.
 
 **Copy must use the plugin, not `navigator.clipboard`.** The packaged app serves
 `http://tauri.localhost`, which is not a secure context, so the browser API is
 unavailable — and it works fine under `tauri dev`, so this breaks only in the
 build if you get it wrong.
 
-`raw_text` is not shown. It is in the file for auditing the
-[grammar step](GRAMMAR.md#logging-both-versions), not for the user to compare
-side by side — that would be a diff viewer, which is not one of the six
-features.
+### Which version
+
+A row that has more than one version of itself gets a switch, in the metadata line
+next to the time. **Copy** takes whichever version is showing:
+
+```
+[ Yours ] [ Cleaned ] [ Original ]
+```
+
+| | Field | What it is |
+| - | ----- | ---------- |
+| **Yours** | `edited` | The [correction](#correcting-a-row) made here. Only on rows that have one |
+| **Cleaned** / **Typed** | `text` | What went into the application. Always present, and the one guarantee the log has |
+| **Original** | `raw_text` | What Whisper returned, before grammar and vocabulary. Only when it differs |
+
+This is what makes "give me my own words, not the tidied-up ones" a click instead
+of a lost cause — the grammar step is not always an improvement, and the user is
+the one who knows.
+
+**Always visible, not behind expanding the row.** It was hidden until expanded
+first, on the grounds that a mostly-idle control is noise — and it was
+undiscoverable, which is worse. It sits in the metadata line so it costs no extra
+row height, which also means hover cannot reflow the list.
+
+**Still not a diff viewer.** One version at a time, no highlighting, no
+side-by-side, nothing computed. The switch appears only when the row *has* another
+version.
 
 ### Correcting a row
 

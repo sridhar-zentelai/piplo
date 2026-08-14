@@ -198,6 +198,55 @@ pub fn correct(app: &AppHandle, id: &str, edited: &str) -> Result<Corrected, Str
     Ok(found)
 }
 
+/// Drop one row from the log.
+///
+/// The same rewrite `correct` does, and for the same reason: the file is read
+/// whole on every render, so rewriting it costs the same class of work as
+/// reading it, and appending a tombstone would push a fold onto every reader of
+/// the file forever.
+///
+/// Lines that will not parse are carried through untouched. They are not the row
+/// being deleted, and a delete must never be a way to lose the rest of the
+/// history.
+#[tauri::command]
+pub fn delete_entry(app: AppHandle, id: String) -> Result<(), String> {
+    let dir = directory(&app).ok_or_else(|| "no history directory".to_string())?;
+    let path = dir.join(FILE);
+
+    let text = std::fs::read_to_string(&path).map_err(|err| err.to_string())?;
+
+    let mut found = false;
+    let mut out = String::with_capacity(text.len());
+
+    for line in text.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+
+        let is_target = serde_json::from_str::<Entry>(line)
+            .map(|entry| entry.id == id)
+            .unwrap_or(false);
+
+        if is_target {
+            found = true;
+            continue;
+        }
+
+        out.push_str(line);
+        out.push('\n');
+    }
+
+    if !found {
+        return Err("that dictation is no longer in history".to_string());
+    }
+
+    // Temp file and rename, so an interrupted write leaves either the old file or
+    // the new one and never half of one.
+    let temp = dir.join(format!("{FILE}.tmp"));
+    std::fs::write(&temp, out).map_err(|err| err.to_string())?;
+    std::fs::rename(&temp, &path).map_err(|err| err.to_string())
+}
+
 #[tauri::command]
 pub fn clear_history(app: AppHandle) -> Result<(), String> {
     let Some(dir) = directory(&app) else {

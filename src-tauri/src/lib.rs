@@ -58,14 +58,14 @@ pub fn run() {
             session::start_dictation,
             session::finish_dictation,
             session::cancel_dictation,
-            session::last_word_fix,
-            session::undo_word_fix,
             settings::get_settings,
+            shortcut::list_shortcuts,
             settings::set_settings,
             credentials::get_api_key_status,
             credentials::set_api_key,
             credentials::clear_api_key,
             history::get_history,
+            history::delete_entry,
             history::clear_history,
             snippets::list_snippets,
             snippets::save_snippet,
@@ -130,7 +130,7 @@ pub fn run() {
             }
 
             shortcut::register_initial(handle, &shortcut_accelerator);
-            shortcut::register_undo(handle);
+            shortcut::register_fixed(handle);
             tray::create(handle)?;
 
             // Home opens on launch. `home` stays `"visible": false` in the
