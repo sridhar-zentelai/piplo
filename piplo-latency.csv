@@ -14,3 +14,4 @@ audio_secs,words,cleaned,audio_ms,whisper_ms,gap_ms,grammar_ms,insertion_ms,tota
 1.01,2,true,3,265,1,159,19,446
 1.31,2,false,5,357,1,0,22,384
 1.27,1,false,4,333,1,0,18,355
+10.82,25,true,24,503,1,206,110,843
