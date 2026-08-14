@@ -32,6 +32,23 @@ The **variant list is where the value is**. A term is a hint that Whisper may
 ignore; a variant is a deterministic replacement that always fires. This is why
 [learning](#learning) writes variants and never invents terms.
 
+Storing them together is a deliberate choice, not an accident of the schema. The
+two halves are what give a single entry both layers at once: `ZentelAI` steers
+Whisper *and* `gentle AI` → `ZentelAI` catches it when the steering fails. Split
+into separate vocabulary and replacement records, every learned correction would
+have to create two rows and keep them in sync, and the [undo](#undoing-a-fix-in-the-app-you-are-typing-in)
+would have no single thing to undo.
+
+### Off
+
+An entry can be switched off. It keeps its variants, its provenance and its place
+in the list, and takes no part in any dictation — **neither half**. No hint, no
+replacement, no mention in the grammar prompt.
+
+This exists because the alternative users reach for is deleting the entry, and a
+term is expensive to rebuild: the variants on it were earned three corrections at
+a time. "This is wrong in the document I am writing today" should not cost that.
+
 ---
 
 ## Where it sits in the pipeline
@@ -144,6 +161,23 @@ Two guards, because a prompt can leak into the output on a near-silent take:
 The 180-character cap is deliberate. Whisper's prompt window is small, a long
 list is more likely to be echoed than obeyed, and the terms a user just added are
 the ones they are about to say.
+
+### Order, once the cap starts biting
+
+Whole terms only — the cap never cuts one in half, because half a term is a word
+Whisper has never seen. So on a dictionary larger than 180 characters, **order
+decides who is sent at all**, and what falls off the end may as well not exist.
+
+Two bands, newest-first inside each:
+
+| Band | What is in it |
+| ---- | ------------- |
+| Starred (`priority: 1`) | Terms the user says every day |
+| Everything else (`priority: 0`) | Newest first, as before |
+
+The sort is stable, so newest-first survives inside each band. Starring is the
+only way to override recency, and it is deliberately the *only* knob: a numeric
+priority field the user has to reason about is a worse answer than a star.
 
 ---
 
@@ -385,15 +419,40 @@ Next to `settings.json` and `snippets.json` in the app config dir, for the
     "id": "uuid-v4",
     "term": "ZentelAI",
     "variants": ["gentle AI", "zentel ai"],
-    "source": "learned"
+    "source": "learned",
+    "enabled": true,
+    "priority": 0
   },
-  { "id": "uuid-v4", "term": "Piplo", "variants": [], "source": "manual" }
+  {
+    "id": "uuid-v4",
+    "term": "Piplo",
+    "variants": [],
+    "source": "manual",
+    "enabled": true,
+    "priority": 1
+  }
 ]
 ```
 
 `source` is `manual` or `learned`, and it is on the entry, not the variant — a
 manually-added term that later gains a learned variant is still a term the user
 asked for. What the list shows per variant comes from the ledger.
+
+`enabled` is `false` for an entry the user has switched off. It keeps its
+variants and its place in the list, but takes no part in a dictation: no hint, no
+replacement, and no mention in the grammar prompt. All three, or "off" means
+something different depending on which half of the feature you are looking at.
+
+`priority` is `1` for a starred term and `0` otherwise, and it only ever affects
+[the order of the prompt hint](#order-once-the-cap-starts-biting).
+
+Both fields default when absent, so a `vocabulary.json` written before they
+existed loads unchanged. `enabled` defaults to **true** specifically — a bool
+defaulting to `false` would silently switch off every dictionary already on disk.
+
+Terms and variants are capped at **60 characters**. An entry is a name, not a
+sentence: one pasted paragraph would otherwise consume most of the 180-character
+prompt window and crowd out every other term.
 
 **`corrections.jsonl`** — append-only, one line per event, like
 [history](TRANSCRIBE.md#historyrs).
@@ -549,7 +608,7 @@ Two lines, and the second is the interesting one.
 
 | Line | Content |
 | ---- | ------- |
-| 1 | The term, a sparkle when learned, and the actions |
+| 1 | The term, a sparkle when learned, a filled star when starred, and the actions |
 | 2 | The variants as `·`-separated text, and the provenance |
 
 Provenance is "Manual", "Learned from 3 corrections", or both when a manual term
@@ -559,6 +618,27 @@ dictionary that cannot answer it is a dictionary users delete wholesale.
 Same **fixed-column grid** as [snippets](SNIPPETS.md#row-alignment): actions
 occupy their column whether or not they are visible, so hovering cannot reflow the
 row.
+
+#### Off
+
+A switched-off row is **dimmed in place**, and line 2 is replaced with
+`Off · not hinted, not replaced` — which outranks the variants, because the first
+question about a dimmed row is why it is dimmed. It is not hidden, not moved, and
+not sorted to the bottom: a term that vanishes when you turn it off has been
+deleted as far as the user is concerned.
+
+Its power button is also the one action that **stays visible without hovering**.
+Hiding the only control that undoes the state, until you guess to hover for it, is
+how a toggle becomes a delete.
+
+#### Both toggles go through `save_term`
+
+Star and on/off do not get commands of their own. They send the whole entry
+through the same `save_term` that an edit uses, so the backend stays the only
+thing that decides what is valid and a toggle cannot drift from what an edit would
+have written. `priority` is clamped to the two bands on the way in — the value
+crosses from the webview, and an out-of-range one would sort in a way no button
+can undo.
 
 ### Editing
 
@@ -723,6 +803,22 @@ cannot leave a truncated history.
 16. **Search finds the mistake.** Searching "gentle" returns `ZentelAI`.
 17. **History survives an interrupted rewrite.** Kill the app mid-edit; the file
     is either the old version or the new one, never half of one.
+18. **Off is off in all three places.** Switch a term off, then dictate its
+    variant: the request carries no `prompt` naming it, the replacement does not
+    fire, and the grammar prompt does not list it. Checking only the replacement
+    is how this ships half-done.
+19. **Off survives a restart, and the entry is intact.** The row is still there,
+    still dimmed, with its variants — not deleted, not emptied.
+20. **An old file loads switched on.** Take a `vocabulary.json` with no `enabled`
+    or `priority` keys, start the app, and confirm every entry still fires. This
+    is the migration, and getting it wrong silently disables the user's whole
+    dictionary.
+21. **A star reaches the front.** With more than 180 characters of terms, star one
+    that was falling off the end and confirm it now leads the `prompt`.
+22. **The cap never splits a term.** With a long dictionary, every term in the
+    `prompt` is whole.
+23. **60 characters is enforced.** Paste a sentence into the term field and into
+    the variants field; both are rejected with a message, and nothing is written.
 
 ---
 

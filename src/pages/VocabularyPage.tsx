@@ -45,7 +45,14 @@ const EXAMPLES: [string, string][] = [
   ["prism", "Prisma"],
 ];
 
-const BLANK: Term = { id: "", term: "", variants: [], source: "manual" };
+const BLANK: Term = {
+  id: "",
+  term: "",
+  variants: [],
+  source: "manual",
+  enabled: true,
+  priority: 0,
+};
 
 export default function VocabularyPage() {
   const [entries, setEntries] = useState<Term[]>([]);
@@ -147,6 +154,23 @@ export default function VocabularyPage() {
       setEntries(await deleteTerm(id));
     } catch (error) {
       console.error("[piplo] could not delete the term", error);
+    }
+  }
+
+  /**
+   * Both toggles go through `saveTerm`, so the backend stays the only thing that
+   * decides what is valid — and a toggle cannot drift from what an edit would
+   * have written.
+   *
+   * Swallowed rather than surfaced: there is no field to hang a message next to,
+   * and the row re-renders from whatever the backend returned, so a failed toggle
+   * simply stays as it was.
+   */
+  async function amend(entry: Term, change: Partial<Term>) {
+    try {
+      setEntries(await saveTerm({ ...entry, ...change }));
+    } catch (error) {
+      console.error("[piplo] could not update the term", error);
     }
   }
 
@@ -366,6 +390,12 @@ export default function VocabularyPage() {
                     setEditing(entry.id);
                   }}
                   onDelete={() => void remove(entry.id)}
+                  onToggle={() =>
+                    void amend(entry, { enabled: !entry.enabled })
+                  }
+                  onStar={() =>
+                    void amend(entry, { priority: entry.priority > 0 ? 0 : 1 })
+                  }
                 />
               ),
             )}

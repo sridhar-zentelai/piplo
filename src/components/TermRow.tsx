@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Pencil, Sparkles, Trash2 } from "lucide-react";
+import { Pencil, Power, PowerOff, Sparkles, Star, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { Term } from "@/lib/commands";
 import { cn } from "@/lib/utils";
@@ -31,17 +31,31 @@ export default function TermRow({
   entry,
   onEdit,
   onDelete,
+  onToggle,
+  onStar,
 }: {
   entry: Term;
   onEdit: () => void;
   onDelete: () => void;
+  /** Take the entry out of dictations, or put it back. */
+  onToggle: () => void;
+  /** Move it to the front of the Whisper hint, or back into the queue. */
+  onStar: () => void;
 }) {
   /** Pins the action column open, or it would vanish mid-question. */
   const [confirming, setConfirming] = useState(false);
   const learned = entry.source === "learned";
+  const starred = entry.priority > 0;
 
   return (
-    <li className="group rounded-xl border border-border bg-white/[0.02] transition-colors hover:border-white/[0.14]">
+    <li
+      className={cn(
+        "group rounded-xl border border-border bg-white/[0.02] transition-colors hover:border-white/[0.14]",
+        // Dimmed rather than hidden or moved: the row has to stay findable and
+        // stay put, or turning a term off reads as having deleted it.
+        !entry.enabled && "opacity-45",
+      )}
+    >
       {/* Clicking anywhere on the row starts editing; the pencil is what says so.
           A div rather than a button: the actions are buttons of their own and
           nesting them would be invalid. */}
@@ -75,12 +89,24 @@ export default function TermRow({
                 className="size-3 shrink-0 text-primary"
               />
             )}
+            {starred && (
+              <Star
+                aria-label="Starred — sent to Whisper first"
+                className="size-3 shrink-0 fill-primary text-primary"
+              />
+            )}
           </div>
 
           {/* The answer to "why is this here?". A dictionary that cannot answer
               it is one users delete wholesale. */}
           <p className="mt-1 truncate font-sans text-xs text-muted-foreground">
-            {entry.variants.length > 0 ? (
+            {!entry.enabled ? (
+              // Outranks the variants: the first question about a dimmed row is
+              // why it is dimmed.
+              <span className="text-muted-foreground/70">
+                Off · not hinted, not replaced
+              </span>
+            ) : entry.variants.length > 0 ? (
               <span title={entry.variants.join(" · ")}>
                 {entry.variants.join(" · ")}
               </span>
@@ -93,7 +119,7 @@ export default function TermRow({
         </div>
 
         <div
-          className="flex min-w-[68px] items-center justify-end gap-1"
+          className="flex min-w-[124px] items-center justify-end gap-1"
           // The row's own click starts editing, which is not what any of these
           // mean.
           onClick={(event) => event.stopPropagation()}
@@ -115,7 +141,54 @@ export default function TermRow({
               </Button>
             </div>
           ) : (
-            <div className="flex items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+            <div
+              className={cn(
+                "flex items-center gap-1 transition-opacity focus-within:opacity-100 group-hover:opacity-100",
+                // An off row has to carry its own way back on: hiding the only
+                // control that undoes the state until you guess to hover it is
+                // how a toggle becomes a delete.
+                entry.enabled ? "opacity-0" : "opacity-100",
+              )}
+            >
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label={starred ? `Unstar ${entry.term}` : `Star ${entry.term}`}
+                aria-pressed={starred}
+                title={
+                  starred
+                    ? "Sent to Whisper first"
+                    : "Send this one to Whisper first"
+                }
+                onClick={onStar}
+              >
+                <Star
+                  className={cn(
+                    "size-3.5",
+                    starred && "fill-primary text-primary",
+                  )}
+                />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label={
+                  entry.enabled ? `Turn off ${entry.term}` : `Turn on ${entry.term}`
+                }
+                aria-pressed={!entry.enabled}
+                title={
+                  entry.enabled
+                    ? "Take this out of dictations"
+                    : "Put this back into dictations"
+                }
+                onClick={onToggle}
+              >
+                {entry.enabled ? (
+                  <Power className="size-3.5" />
+                ) : (
+                  <PowerOff className="size-3.5 text-muted-foreground" />
+                )}
+              </Button>
               <Button
                 variant="ghost"
                 size="icon-sm"

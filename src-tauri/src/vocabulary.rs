@@ -17,6 +17,18 @@ const FILE: &str = "vocabulary.json";
 /// than obeyed, and the terms just added are the ones about to be said.
 const MAX_PROMPT: usize = 180;
 
+/// Characters in a term or a variant.
+///
+/// A dictionary entry is a name, not a sentence: `Andreessen Horowitz` fits in
+/// 20. The cap is what stops someone pasting a paragraph into the field and
+/// turning one entry into most of `MAX_PROMPT` — a single entry that crowds
+/// every other term out of the hint is worse than no entry at all.
+const MAX_TERM: usize = 60;
+
+/// The band a term sits in when the hint is built. Two is enough: a term either
+/// has to be in the window or it takes its turn.
+const STARRED: u8 = 1;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Entry {
     /// A uuid v4 minted on create. Empty on the way in means "this is new".
@@ -30,10 +42,38 @@ pub struct Entry {
     /// the user asked for stays a term they asked for.
     #[serde(default = "manual")]
     pub source: String,
+    /// Off means the entry keeps its variants and its place in the list but does
+    /// nothing: no hint to Whisper, no replacement. It is the answer to "this
+    /// term is wrong in *this* document" that does not cost the user the entry
+    /// they spent time building.
+    ///
+    /// `default = "yes"` rather than `#[serde(default)]`: a `vocabulary.json`
+    /// written before this field existed has no `enabled` key, and defaulting a
+    /// bool to `false` would silently switch off every entry the user already
+    /// has.
+    #[serde(default = "yes")]
+    pub enabled: bool,
+    /// Starred terms lead the hint. `MAX_PROMPT` is a real ceiling, so on a large
+    /// dictionary this is what decides whose term Whisper actually sees.
+    #[serde(default)]
+    pub priority: u8,
+}
+
+impl Entry {
+    /// Whether this entry takes part in a dictation at all. An entry with a blank
+    /// term is data corruption rather than a decision, and is skipped the same
+    /// way.
+    fn live(&self) -> bool {
+        self.enabled && !self.term.trim().is_empty()
+    }
 }
 
 fn manual() -> String {
     "manual".to_string()
+}
+
+fn yes() -> bool {
+    true
 }
 
 /// The live list, read by the pipeline on every dictation.
@@ -86,7 +126,7 @@ pub fn apply_tracked(entries: &[Entry], text: &str) -> (String, Vec<Fired>) {
     let mut pairs: Vec<(Vec<char>, &str)> = Vec::new();
 
     for entry in entries {
-        if entry.term.trim().is_empty() {
+        if !entry.live() {
             continue;
         }
 
@@ -188,7 +228,7 @@ pub fn terms_in(entries: &[Entry], text: &str) -> Vec<String> {
 
     entries
         .iter()
-        .filter(|entry| !entry.term.trim().is_empty())
+        .filter(|entry| entry.live())
         .filter(|entry| {
             let term: Vec<char> = entry.term.trim().chars().collect();
             (0..chars.len()).any(|at| matches_word_at(&chars, at, &term))
@@ -197,21 +237,27 @@ pub fn terms_in(entries: &[Entry], text: &str) -> Vec<String> {
         .collect()
 }
 
-/// The capped comma list for Whisper, most recently added first, or `None` when
-/// there is nothing to hint at.
+/// The capped comma list for Whisper — starred terms first, then most recently
+/// added — or `None` when there is nothing to hint at.
 ///
 /// Free — no extra call, no extra latency — and the only mechanism that can make
 /// Whisper produce the right token before there is any variant to replace. It is
 /// a hint and nothing more; [`apply`] is the mechanism.
+///
+/// Order is the whole feature once the dictionary outgrows `MAX_PROMPT`: what
+/// falls off the end is never sent. Newest-first is the default because the term
+/// just added is the one about to be said; starring is how the user overrides
+/// that for a word they say every day.
 pub fn prompt(entries: &[Entry]) -> Option<String> {
     let mut hint = String::new();
 
-    for entry in entries.iter().rev() {
-        let term = entry.term.trim();
+    // Reversed first so newest-first is the order inside each band, then a
+    // *stable* sort by priority, which preserves it.
+    let mut ordered: Vec<&Entry> = entries.iter().rev().filter(|entry| entry.live()).collect();
+    ordered.sort_by_key(|entry| std::cmp::Reverse(entry.priority));
 
-        if term.is_empty() {
-            continue;
-        }
+    for entry in ordered {
+        let term = entry.term.trim();
 
         let addition = if hint.is_empty() {
             term.len()
@@ -401,6 +447,11 @@ pub fn add_variant(app: &AppHandle, term: &str, variant: &str) -> Result<Vec<Ent
             term: term.to_string(),
             variants: vec![variant.to_string()],
             source: "learned".to_string(),
+            // A term Piplo learned is on and unstarred: it earned its place by
+            // being corrected three times, which is not the same as the user
+            // saying it matters more than everything else.
+            enabled: true,
+            priority: 0,
         }),
     }
 
@@ -448,6 +499,12 @@ pub fn save_term(app: AppHandle, entry: Entry) -> Result<Vec<Entry>, String> {
         return Err("Give the entry a word to type.".into());
     }
 
+    if term.chars().count() > MAX_TERM {
+        return Err(format!(
+            "A term is a name, not a sentence — keep it under {MAX_TERM} characters."
+        ));
+    }
+
     let mut variants: Vec<String> = Vec::new();
 
     for variant in &entry.variants {
@@ -455,6 +512,13 @@ pub fn save_term(app: AppHandle, entry: Entry) -> Result<Vec<Entry>, String> {
 
         if variant.is_empty() {
             continue;
+        }
+
+        if variant.chars().count() > MAX_TERM {
+            return Err(format!(
+                "'{}…' is too long — keep each one under {MAX_TERM} characters.",
+                variant.chars().take(20).collect::<String>()
+            ));
         }
 
         if normalize(&variant) == normalize(&term) {
@@ -510,6 +574,11 @@ pub fn save_term(app: AppHandle, entry: Entry) -> Result<Vec<Entry>, String> {
 
             entries[index].term = term.clone();
             entries[index].variants = variants;
+            // Clamped rather than trusted: the field crosses from the webview,
+            // and a value outside the two bands would sort in a way no button
+            // can undo.
+            entries[index].priority = entry.priority.min(STARRED);
+            entries[index].enabled = entry.enabled;
             dropped
         }
         // Appended, which is what makes file order the created order that
@@ -520,6 +589,8 @@ pub fn save_term(app: AppHandle, entry: Entry) -> Result<Vec<Entry>, String> {
                 term: term.clone(),
                 variants,
                 source: manual(),
+                enabled: entry.enabled,
+                priority: entry.priority.min(STARRED),
             });
             Vec::new()
         }
@@ -573,7 +644,115 @@ mod tests {
             term: term.to_string(),
             variants: variants.iter().map(|v| v.to_string()).collect(),
             source: manual(),
+            enabled: true,
+            priority: 0,
         }
+    }
+
+    fn disabled(term: &str, variants: &[&str]) -> Entry {
+        Entry {
+            enabled: false,
+            ..entry(term, variants)
+        }
+    }
+
+    fn starred(term: &str) -> Entry {
+        Entry {
+            priority: STARRED,
+            ..entry(term, &[])
+        }
+    }
+
+    /// Off means off in all three places the dictionary is read during a
+    /// dictation. Missing any one of them is the bug this feature would
+    /// otherwise ship with: a term that still steers Whisper, or still gets
+    /// named in the grammar prompt, is not disabled in any sense the user meant.
+    #[test]
+    fn a_disabled_entry_does_nothing() {
+        let entries = vec![disabled("MongoDB", &["mango DB"])];
+
+        assert_eq!(apply(&entries, "we use mango DB").0, "we use mango DB");
+        assert_eq!(prompt(&entries), None);
+        assert!(terms_in(&entries, "we use MongoDB").is_empty());
+    }
+
+    /// Disabling one entry must not disturb the others.
+    #[test]
+    fn disabling_one_entry_leaves_the_rest() {
+        let entries = vec![
+            disabled("MongoDB", &["mango DB"]),
+            entry("Prisma", &["prism"]),
+        ];
+
+        let (text, fired) = apply_tracked(&entries, "mango DB and prism");
+
+        assert_eq!(text, "mango DB and Prisma");
+        assert_eq!(fired.len(), 1);
+        assert_eq!(prompt(&entries).as_deref(), Some("Prisma"));
+    }
+
+    /// An entry written before `enabled` existed has no such key. Defaulting it
+    /// to `false` would switch off every dictionary already on disk.
+    #[test]
+    fn an_entry_without_the_new_fields_loads_enabled() {
+        let old = r#"[{"id":"1","term":"MongoDB","variants":["mango DB"],"source":"manual"}]"#;
+        let entries: Vec<Entry> = serde_json::from_str(old).expect("old shape still parses");
+
+        assert!(entries[0].enabled);
+        assert_eq!(entries[0].priority, 0);
+        assert_eq!(apply(&entries, "mango DB").0, "MongoDB");
+    }
+
+    /// Starred terms lead, and newest-first survives inside each band — which is
+    /// what makes the order predictable once `MAX_PROMPT` starts truncating.
+    #[test]
+    fn starred_terms_lead_the_hint() {
+        let entries = vec![entry("Alpha", &[]), starred("Beta"), entry("Gamma", &[])];
+
+        assert_eq!(prompt(&entries).as_deref(), Some("Beta, Gamma, Alpha"));
+    }
+
+    /// The reason starring exists: past the cap, order decides who is sent at
+    /// all.
+    #[test]
+    fn a_starred_term_survives_the_cap() {
+        let mut entries: Vec<Entry> = (0..40)
+            .map(|i| entry(&format!("Filler{i:02}"), &[]))
+            .collect();
+
+        entries.insert(0, starred("Kubernetes"));
+
+        let hint = prompt(&entries).expect("a hint");
+
+        assert!(hint.chars().count() <= MAX_PROMPT);
+        assert!(hint.starts_with("Kubernetes"), "got {hint:?}");
+    }
+
+    /// Whole terms only, still — the cap must not cut one in half.
+    #[test]
+    fn the_hint_stays_within_the_cap() {
+        let entries: Vec<Entry> = (0..40)
+            .map(|i| entry(&format!("Terminology{i:02}"), &[]))
+            .collect();
+
+        let hint = prompt(&entries).expect("a hint");
+
+        assert!(hint.chars().count() <= MAX_PROMPT);
+
+        for term in hint.split(", ") {
+            assert!(term.starts_with("Terminology"), "half a term: {term:?}");
+            assert_eq!(term.chars().count(), "Terminology00".len());
+        }
+    }
+
+    /// A blank term is corruption rather than a decision, and was skipped before
+    /// `enabled` existed. It still is.
+    #[test]
+    fn a_blank_term_is_still_skipped() {
+        let entries = vec![entry("   ", &["something"])];
+
+        assert_eq!(apply(&entries, "something").0, "something");
+        assert_eq!(prompt(&entries), None);
     }
 
     #[test]

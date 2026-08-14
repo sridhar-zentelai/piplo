@@ -39,6 +39,10 @@ export interface Term {
   /** What Whisper says instead, replaced deterministically. */
   variants: string[];
   source: "manual" | "learned";
+  /** Off keeps the entry and its variants but takes it out of every dictation. */
+  enabled: boolean;
+  /** 1 puts the term at the front of the Whisper hint, which is capped. */
+  priority: number;
 }
 
 /** Mirrors `snippets::Snippet`. An empty `id` means "this is new". */
