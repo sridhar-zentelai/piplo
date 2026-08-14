@@ -102,6 +102,7 @@ pub async fn transcribe(
     // user was still speaking. The timeout is set per request rather than on the
     // client because the client is shared with grammar, which wants a much
     // shorter one.
+    crate::timing::whisper_sent();
     let response = crate::http::client()
         .post(format!("{BASE_URL}/openai/v1/audio/transcriptions"))
         .bearer_auth(api_key)
@@ -117,6 +118,7 @@ pub async fn transcribe(
         // Read the body before mapping: Groq explains itself, and "failed" is a
         // worse message than whatever it said.
         let body = response.text().await.unwrap_or_default();
+        crate::timing::whisper_done();
 
         return Err(match status.as_u16() {
             401 | 403 => GroqError::Unauthorized,
@@ -129,10 +131,15 @@ pub async fn transcribe(
         });
     }
 
-    response
+    let parsed = response
         .json::<Transcription>()
         .await
-        .map_err(|err| GroqError::Decode(err.to_string()))
+        .map_err(|err| GroqError::Decode(err.to_string()));
+    // Includes the JSON decode as well as the body read — sub-millisecond for a
+    // transcript, and it keeps the mark on every exit path.
+    crate::timing::whisper_done();
+
+    parsed
 }
 
 /// Groq wraps failures as `{"error":{"message":"..."}}`. Fall back to the raw

@@ -96,10 +96,12 @@ const META_PREFIXES: [&str; 12] = [
 /// model is told to leave alone.
 pub async fn run(api_key: &str, raw: &str, terms: &[String]) -> Option<String> {
     if !enabled() {
+        crate::timing::grammar_skipped();
         return None;
     }
 
     if raw.split_whitespace().count() < MIN_WORDS {
+        crate::timing::grammar_skipped();
         return None;
     }
 
@@ -177,6 +179,7 @@ async fn request(api_key: &str, raw: &str, terms: &[String]) -> Option<String> {
     // Shared with transcription, so this second call of the dictation reuses the
     // connection that one just opened and pays no handshake at all. The timeout is
     // per request because the client is shared with the upload, which wants 60 s.
+    crate::timing::grammar_sent();
     let response = crate::http::client()
         .post(format!("{BASE_URL}/openai/v1/chat/completions"))
         .bearer_auth(api_key)
@@ -189,6 +192,7 @@ async fn request(api_key: &str, raw: &str, terms: &[String]) -> Option<String> {
         Ok(response) => response,
         Err(err) => {
             // Timeouts land here and are expected occasionally. Raw text types.
+            crate::timing::grammar_done();
             eprintln!("piplo: grammar request failed: {err}");
             return None;
         }
@@ -198,6 +202,7 @@ async fn request(api_key: &str, raw: &str, terms: &[String]) -> Option<String> {
 
     if !status.is_success() {
         let body = response.text().await.unwrap_or_default();
+        crate::timing::grammar_done();
         // Logged loudly: a 404 here means the model id is retired, which is
         // otherwise invisible because dictation carries on working.
         eprintln!(
@@ -209,7 +214,10 @@ async fn request(api_key: &str, raw: &str, terms: &[String]) -> Option<String> {
         return None;
     }
 
-    match response.json::<ChatResponse>().await {
+    let decoded = response.json::<ChatResponse>().await;
+    crate::timing::grammar_done();
+
+    match decoded {
         Ok(parsed) => parsed
             .choices
             .into_iter()

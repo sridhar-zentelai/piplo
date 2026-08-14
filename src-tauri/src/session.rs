@@ -204,6 +204,10 @@ pub fn finish(app: &AppHandle, trigger: Trigger) {
     let seconds = samples.len() as f32 / sample_rate.max(1) as f32;
     println!("piplo: session stop — {seconds:.2}s at {sample_rate} Hz");
 
+    // TEMPORARY: starts the latency clock at the moment recording stops, before
+    // the resample, so audio processing is inside the total.
+    crate::timing::begin(seconds as f64);
+
     set_status(app, Status::Transcribing);
 
     let downsampled = audio::to_16k(&samples, sample_rate);
@@ -216,6 +220,8 @@ pub fn finish(app: &AppHandle, trigger: Trigger) {
             return;
         }
     };
+
+    crate::timing::wav_ready();
 
     // Tauri's tokio runtime is already here, so no second runtime.
     let app = app.clone();
@@ -310,6 +316,9 @@ async fn deliver(app: AppHandle, wav: Vec<u8>, generation: u64, seconds: f32) {
         // Only the terms this transcript actually contains — see VOCABULARY.md.
         grammar::run(&key, &raw, &vocabulary::terms_in(&terms, &raw)).await
     } else {
+        // A snippet hit or the setting being off skips the call entirely, which is
+        // a real latency win and has to read as 0 rather than as missing data.
+        crate::timing::grammar_skipped();
         None
     };
 
@@ -371,6 +380,10 @@ async fn deliver(app: AppHandle, wav: Vec<u8>, generation: u64, seconds: f32) {
         });
 
     let inserted = outcome == insert::Insert::Typed;
+
+    // TEMPORARY: closes the latency clock. Placed on the same line as `inserted`
+    // so it covers the blocking typing step above and nothing after it.
+    crate::timing::inserted(text.split_whitespace().count(), corrected);
 
     // Only what Piplo typed itself, and only while it is the most recent thing it
     // typed. A snippet expansion is canned text, not a cleanup or a fix, so

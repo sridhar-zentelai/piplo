@@ -12,6 +12,7 @@ mod session;
 mod settings;
 mod shortcut;
 mod snippets;
+mod timing;
 mod tray;
 mod vocabulary;
 mod widget;
