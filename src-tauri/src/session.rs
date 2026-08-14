@@ -1,6 +1,6 @@
 //! The only module that knows the order.
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
@@ -8,7 +8,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::audio::{self, Recorder};
-use crate::{grammar, groq, history, insert, settings, snippets, vocabulary, widget};
+use crate::{grammar, groq, history, insert, learn, platform, settings, snippets, vocabulary, widget};
 
 /// How long an error sits on the pill before it returns to idle.
 const ERROR_LINGER: Duration = Duration::from_millis(2500);
@@ -45,6 +45,30 @@ pub enum Trigger {
 /// after: without it, cancel-then-immediately-record types the previous take.
 #[derive(Default)]
 pub struct Generation(AtomicU64);
+
+/// Whether synthesised keystrokes are landing in someone else's window right now.
+///
+/// It exists for exactly one reader: [`catch_up`]. A UI Automation request makes
+/// the target application stop and service it, and doing that while `SendInput`
+/// is mid-delivery costs keystrokes — the app drops them, `SendInput` still
+/// reports success, and the user gets "I on GentilAI." where Piplo sent "I am
+/// working on GentilAI.". Starting a new recording before the last one had
+/// finished typing was enough to trigger it.
+///
+/// Skipping the read is also right on its own terms: text still arriving is text
+/// the user has not had a chance to correct.
+#[derive(Default)]
+pub struct Typing(AtomicBool);
+
+impl Typing {
+    fn set(&self, typing: bool) {
+        self.0.store(typing, Ordering::SeqCst);
+    }
+
+    fn now(&self) -> bool {
+        self.0.load(Ordering::SeqCst)
+    }
+}
 
 struct InFlight {
     recorder: Recorder,
@@ -120,6 +144,37 @@ impl LastFix {
     }
 }
 
+/// Exactly what Piplo last typed into someone else's application, and the only
+/// thing the read-back at the start of a recording is ever compared against.
+///
+/// Separate from [`LastFix`] rather than folded into it. `LastFix` exists for the
+/// undo shortcut and is only kept when a dictation had something to undo, so a
+/// plain one is forgotten — which is precisely the dictation a user is most likely
+/// to go and fix by hand. The two answer different questions and one field is
+/// cheaper than a second rule inside `remember_fix`.
+#[derive(Default)]
+pub struct LastTyped(Mutex<Option<String>>);
+
+impl LastTyped {
+    fn lock(&self) -> MutexGuard<'_, Option<String>> {
+        match self.0.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
+
+    fn set(&self, text: String) {
+        *self.lock() = Some(text);
+    }
+
+    /// Read **and** clear, so one insertion is compared exactly once. Without
+    /// this, every recording would re-read the field and re-learn from the same
+    /// stale text until the next dictation replaced it.
+    fn take(&self) -> Option<String> {
+        self.lock().take()
+    }
+}
+
 impl Active {
     fn lock(&self) -> MutexGuard<'_, Option<InFlight>> {
         match self.0.lock() {
@@ -157,6 +212,11 @@ pub fn start(app: &AppHandle, trigger: Trigger) {
             widen(app);
             set_status(app, Status::Recording);
             println!("piplo: session start ({trigger:?})");
+
+            // Last, and off the thread: the recorder is already capturing and the
+            // pill is already up, so nothing the read does can delay a word the
+            // user has started saying.
+            catch_up(app);
         }
         Err(err) => {
             drop(slot);
@@ -165,6 +225,55 @@ pub fn start(app: &AppHandle, trigger: Trigger) {
             fail(app, err.to_string());
         }
     }
+}
+
+/// Did the user fix the last dictation by hand? Ask once, here, and nowhere else.
+///
+/// This is the only place in Piplo that looks at another application's text, and
+/// the design is the timing: it happens at the start of a recording, it happens
+/// once, and it reads the focused field only to compare it against what Piplo
+/// itself typed there. Nothing watches, nothing polls, and nothing is retained —
+/// the field text lives on this thread and is dropped with it.
+///
+/// Everything is conditional on there being a `LastTyped` at all, which only a
+/// real insertion sets. A first dictation, a snippet, a blocked type: all leave it
+/// empty, and this returns without reading anything.
+fn catch_up(app: &AppHandle) {
+    if !settings::current(app).learn_from_corrections {
+        return;
+    }
+
+    // Never while keystrokes are still going out. See `Typing` — a UI Automation
+    // request lands on the same window and eats them.
+    if app.state::<Typing>().now() {
+        println!("piplo: still typing, not reading the field this time");
+        return;
+    }
+
+    let Some(typed) = app.state::<LastTyped>().take() else {
+        return;
+    };
+
+    let app = app.clone();
+
+    // Blocking, and detached. UI Automation is a cross-process COM call that can
+    // take a while or hang against a stuck application — on its own thread that
+    // costs a thread, and the dictation in flight never notices.
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(field) = platform::focused_text() else {
+            return;
+        };
+
+        let Some(term) = learn::learn_from_field(&app, &typed, &field) else {
+            return;
+        };
+
+        // The pill is showing Recording and must go on showing it — this rides
+        // alongside as its own event rather than becoming a fifth Status.
+        if let Err(err) = app.emit("learned", term) {
+            eprintln!("piplo: could not announce the learned word: {err}");
+        }
+    });
 }
 
 pub fn finish(app: &AppHandle, trigger: Trigger) {
@@ -222,6 +331,15 @@ pub fn finish(app: &AppHandle, trigger: Trigger) {
     };
 
     crate::timing::wav_ready();
+
+    // TEMPORARY: set PIPLO_DUMP_WAV to a path to keep a copy of what was sent to
+    // Whisper, so the same audio can be replayed against different prompts.
+    if let Ok(path) = std::env::var("PIPLO_DUMP_WAV") {
+        match std::fs::write(&path, &wav) {
+            Ok(()) => println!("piplo: wrote {path}"),
+            Err(err) => eprintln!("piplo: could not write {path}: {err}"),
+        }
+    }
 
     // Tauri's tokio runtime is already here, so no second runtime.
     let app = app.clone();
@@ -372,12 +490,16 @@ async fn deliver(app: AppHandle, wav: Vec<u8>, generation: u64, seconds: f32) {
 
     // Blocking: it polls for modifiers and then paces the synthesised input.
     let typed = text.clone();
+    // Raised before the first keystroke and lowered after the last, so a
+    // recording started mid-way through cannot read the field out from under it.
+    app.state::<Typing>().set(true);
     let outcome = tauri::async_runtime::spawn_blocking(move || insert::type_text(&typed))
         .await
         .unwrap_or_else(|err| {
             eprintln!("piplo: typing task failed: {err}");
             insert::Insert::Blocked("the typing step failed")
         });
+    app.state::<Typing>().set(false);
 
     let inserted = outcome == insert::Insert::Typed;
 
@@ -400,6 +522,15 @@ async fn deliver(app: AppHandle, wav: Vec<u8>, generation: u64, seconds: f32) {
         },
         inserted && !is_snippet,
     );
+
+    // The same two conditions, for a different reason: only text that actually
+    // reached the user's application can have been corrected in it, and a snippet
+    // is canned text whose wording teaches nothing. Set even when the dictation
+    // had nothing to undo — that is the case `remember_fix` drops and the one
+    // most likely to be fixed by hand.
+    if inserted && !is_snippet {
+        app.state::<LastTyped>().set(text.clone());
+    }
 
     // Whisper's own words, not the corrected ones: `raw_text` is what was heard,
     // and the vocabulary pass is one of the things it should be compared against.
@@ -541,6 +672,9 @@ async fn toggle(app: AppHandle, step: Step) -> Result<(), String> {
 
     // Blocking: it waits for modifiers and paces synthesised input.
     let typed = target.clone();
+    // The same guard as the dictation path: this erases and retypes in the user's
+    // own window, and a read-back landing in the middle would eat keystrokes.
+    app.state::<Typing>().set(true);
     let outcome = tauri::async_runtime::spawn_blocking(move || {
         insert::replace_typed(count, &typed)
     })
@@ -549,6 +683,7 @@ async fn toggle(app: AppHandle, step: Step) -> Result<(), String> {
         eprintln!("piplo: undo task failed: {err}");
         insert::Insert::Blocked("the typing step failed")
     });
+    app.state::<Typing>().set(false);
 
     if let insert::Insert::Blocked(why) = outcome {
         return Err(why.to_string());

@@ -94,6 +94,11 @@ windows = { version = "0.62", features = [
   # GetCurrentProcessId, to tell Piplo's own windows from the user's app before
   # synthesising a correction.
   "Win32_System_Threading",
+  # UI Automation, for the one read of the focused field at recording start —
+  # see platform::focused_text and docs/VOCABULARY.md.
+  "Win32_UI_Accessibility",
+  # CoCreateInstance, which is how the UI Automation client is obtained.
+  "Win32_System_Com",
 ] }
 
 # Keeps the shipped binary small.

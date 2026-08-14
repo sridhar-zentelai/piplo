@@ -19,10 +19,35 @@ const POSITION_FILE: &str = "widget.json";
 /// Gap between the widget and the bottom of the work area, in logical pixels.
 const BOTTOM_GAP: f64 = 24.0;
 
-/// The window is only ever these two sizes. The chip is as tall as the pill, so
-/// only the width changes and nothing can clip mid-morph.
+/// The chip is as tall as the pill, so between those two only the width changes
+/// and nothing can clip mid-morph.
 const IDLE_SIZE: LogicalSize<f64> = LogicalSize::new(40.0, 40.0);
 const ACTIVE_SIZE: LogicalSize<f64> = LogicalSize::new(200.0, 40.0);
+
+/// Room for the pill *and* the learned-word strip under it. The window has to
+/// grow before the strip renders or it is simply clipped away — the webview
+/// cannot paint outside it.
+const NOTE_SIZE: LogicalSize<f64> = LogicalSize::new(320.0, 88.0);
+
+/// Which of the three the window is at. The frontend decides, because it is the
+/// only side that knows whether a note is on screen as well as what the status is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Shape {
+    Idle,
+    Pill,
+    Note,
+}
+
+impl Shape {
+    fn size(self) -> LogicalSize<f64> {
+        match self {
+            Shape::Idle => IDLE_SIZE,
+            Shape::Pill => ACTIVE_SIZE,
+            Shape::Note => NOTE_SIZE,
+        }
+    }
+}
 
 /// Where the user dragged the widget: its centre, in physical screen
 /// coordinates.
@@ -89,10 +114,8 @@ pub fn place(window: &WebviewWindow) {
 /// Widen for the pill, narrow back for the chip. Re-placing after the resize is
 /// what keeps the widget's centre fixed, so it grows outward in both directions
 /// instead of appearing to slide.
-pub fn set_active(window: &WebviewWindow, active: bool) {
-    let size = if active { ACTIVE_SIZE } else { IDLE_SIZE };
-
-    if let Err(err) = window.set_size(size) {
+pub fn set_shape(window: &WebviewWindow, shape: Shape) {
+    if let Err(err) = window.set_size(shape.size()) {
         eprintln!("piplo: could not resize widget: {err}");
         return;
     }
@@ -100,13 +123,30 @@ pub fn set_active(window: &WebviewWindow, active: bool) {
     place(window);
 }
 
+/// Pill-or-chip, for the callers that have no opinion about the note — the error
+/// path in `session.rs` is widening to show a message, not deciding what else is
+/// on screen. The frontend re-asserts the real shape on the next status change.
+pub fn set_active(window: &WebviewWindow, active: bool) {
+    set_shape(window, if active { Shape::Pill } else { Shape::Idle });
+}
+
 /// Pulls the widget back inside the work area, and only that — so calling this
 /// from a `Moved` handler settles instead of looping, and a widget the user has
 /// dragged somewhere deliberate stays there.
 pub fn keep_on_screen(window: &WebviewWindow) {
+    // `try_state`, not `state`. This runs from the `Moved` handler, which is
+    // registered on the builder and can therefore fire while the windows are
+    // still being created — before `setup` has managed anything. `state` panics
+    // in that window, and it panics inside a WebView2 callback that cannot
+    // unwind, so the process aborts rather than reporting anything. A widget that
+    // has not been placed yet simply has nowhere to be pulled back to.
+    let Some(drag) = window.try_state::<Drag>() else {
+        return;
+    };
+
     // A drag is the one time the widget is meant to be exactly where it is,
     // including half off an edge on its way to the next monitor.
-    if window.state::<Drag>().active() {
+    if drag.active() {
         return;
     }
 
@@ -138,7 +178,8 @@ fn target_position(window: &WebviewWindow) -> Option<PhysicalPosition<i32>> {
     };
 
     let work = platform::work_area(window)?;
-    let saved = *window.state::<Placement>().lock();
+    // Same reason as `keep_on_screen`: reachable before `setup` has managed it.
+    let saved = *window.try_state::<Placement>()?.lock();
 
     let position = match saved {
         Some(anchor) => PhysicalPosition::new(
@@ -225,11 +266,12 @@ fn position_path(app: &AppHandle) -> Option<PathBuf> {
     }
 }
 
-/// Called by the frontend once the morph animation has finished, so the window
-/// does not narrow while the pill is still shrinking through it.
+/// Called by the frontend as the shape changes — and, when it is shrinking, only
+/// once the morph animation has finished, so the window does not narrow while the
+/// pill is still animating through it.
 #[tauri::command]
-pub fn widget_set_active(window: WebviewWindow, active: bool) {
-    set_active(&window, active);
+pub fn widget_set_shape(window: WebviewWindow, shape: Shape) {
+    set_shape(&window, shape);
 }
 
 /// The drag starts from wherever the window already is; every later move is an

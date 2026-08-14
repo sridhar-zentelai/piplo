@@ -1,9 +1,10 @@
 import { useEffect } from "react";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
+import LearnedNote from "@/components/LearnedNote";
 import PillContents from "@/components/PillContents";
 import { useWidgetDrag } from "@/hooks/useWidgetDrag";
 import { useWidgetEvents } from "@/hooks/useWidgetEvents";
-import { showWidgetMenu, widgetSetActive } from "@/lib/commands";
+import { showWidgetMenu, widgetSetShape } from "@/lib/commands";
 import { useAppStore } from "@/store/appStore";
 import { cn } from "@/lib/utils";
 
@@ -22,17 +23,20 @@ export default function FloatingWidget() {
   useWidgetEvents();
   const drag = useWidgetDrag();
   const status = useAppStore((state) => state.status);
+  const learned = useAppStore((state) => state.learned);
   const idle = status.kind === "idle";
 
-  // Widen the window before the pill grows, so it has room to animate into.
-  // Narrowing waits for onAnimationComplete instead.
+  // Grow the window before the contents grow, so they have room to animate into.
+  // Shrinking waits for onAnimationComplete instead. The note wins over the
+  // status: it is the taller of the two and clipping it would lose the Undo.
   useEffect(() => {
-    if (!idle) void widgetSetActive(true);
-  }, [idle]);
+    if (learned) void widgetSetShape("note");
+    else if (!idle) void widgetSetShape("pill");
+  }, [idle, learned]);
 
   return (
     <div
-      className="flex h-full w-full select-none items-center justify-center"
+      className="flex h-full w-full select-none flex-col items-center justify-center gap-2"
       onContextMenu={() => void showWidgetMenu()}
       {...drag.handlers}
       // The press that ended a drag must not also press whatever was under it.
@@ -46,10 +50,11 @@ export default function FloatingWidget() {
         animate={SHAPE[status.kind]}
         transition={MORPH}
         onAnimationComplete={() => {
-          if (idle) void widgetSetActive(false);
+          // Only when there is nothing else in the window to clip.
+          if (idle && !learned) void widgetSetShape("idle");
         }}
         className={cn(
-          "flex items-center justify-center overflow-hidden border bg-background backdrop-blur-xl",
+          "flex shrink-0 items-center justify-center overflow-hidden border bg-background backdrop-blur-xl",
           status.kind === "error" ? "border-destructive" : "border-border",
           (status.kind === "recording" || status.kind === "transcribing") &&
             "border-primary",
@@ -57,6 +62,15 @@ export default function FloatingWidget() {
       >
         <PillContents status={status} />
       </motion.div>
+
+      <AnimatePresence
+        // The window can only narrow once the note has finished leaving it.
+        onExitComplete={() => {
+          if (idle) void widgetSetShape("idle");
+        }}
+      >
+        {learned && <LearnedNote term={learned} />}
+      </AnimatePresence>
     </div>
   );
 }

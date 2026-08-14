@@ -281,10 +281,12 @@ Known and accepted, not oversights:
   hundreds. The fix at that point is a windowed read, not a database.
 - **Unicode `SendInput` can be dropped** by games and some DirectInput apps. The
   fallback would be clipboard + `Ctrl+V`; the seam for it is `insert.rs`.
-- **Vocabulary only learns from corrections made inside Piplo.** Fixing the text
-  in the document it was typed into teaches nothing. Seeing that edit would mean
-  a keyboard hook or per-app accessibility reads, and
-  [neither is worth it](VOCABULARY.md#why-not-watch-the-users-own-app).
+- **Vocabulary learns from a correction made in the document too, but only via
+  one read.** At the start of a recording Piplo reads the focused field once and
+  compares it against its own last insertion — no hook, no polling, nothing
+  retained. Fixing the text where it is wrong now teaches Piplo the word; see
+  [the boundary](VOCABULARY.md#reading-the-focused-field) for what that read is
+  and is not.
 - **The learned-term filter is deliberately biased toward missing things.** An
   all-lowercase name like `shadcn` is suggested but never auto-learned. Loosening
   it to catch those also catches ordinary content edits, and a polluted

@@ -222,30 +222,82 @@ edit is compared with what was typed; a mapping is extracted.
               gentle AI → ZentelAI          (seen once)
 ```
 
-### Why not watch the user's own app
+### Reading the focused field
 
-Because that means one of:
+There are two ways a correction reaches Piplo, and they cost very different
+things.
 
-- **A keyboard hook** — watching every keystroke in every application. Piplo
-  already refuses this for [snippets](SNIPPETS.md#what-this-is-not), and the
-  privacy story does not improve because the reason changed.
-- **Accessibility APIs** — reading the text around the caret in whatever app has
-  focus. Per-app, permission-gated on macOS, and it means Piplo can read
-  documents it was never asked to look at.
+The safe one, and the original one: **the user edits a history row** in the home
+window. That is an explicit act in Piplo's own UI, it needs no permission and no
+API, and it is unambiguous evidence that a transcript was wrong. It still works
+and it is unchanged.
 
-Neither is worth it, and both are on the
-[do-not list](../CLAUDE.md#do-not-implement).
+But it asks for something people do not naturally do. The text is already in their
+document. They fix it *there*, because that is where it is wrong — and then Piplo
+never finds out. A learning feature that only fires when the user goes somewhere
+else to retype something they have already fixed is a feature that mostly does not
+fire.
 
-**Say the trade out loud:** the user has already pasted the text into their
-document, so fixing it in Piplo does not fix it there. What they get immediately
-is a corrected line to copy; what they get later is that Piplo stops making the
-mistake. The row is labelled accordingly — *fix it here* — and the confirmation
-says what was learned. A feature that quietly hoped users would edit history for
-no visible reason would not work.
+So there is a second way, and it is deliberately the narrowest thing that could
+work:
 
-It also happens to be the safest possible signal. Feature 18 of the source plan
-asks for "evidence that the user intentionally corrected the transcript"; an
-explicit edit in the app's own window is that evidence, exactly and only.
+> **One read of the focused field, at the moment a recording starts, compared only
+> against the text Piplo itself last typed.**
+
+Every clause in that sentence is load bearing.
+
+| Clause | What it rules out |
+| ------ | ----------------- |
+| **One read** | No polling, no timer, no watcher. The call happens and the thread ends |
+| **At the moment a recording starts** | Not while you work, not in the background, not on a schedule. There is exactly one call site: `session::start` |
+| **The focused field** | Not the window title, not the file on disk, not the surrounding application. The element with keyboard focus, and only its text |
+| **Compared against what Piplo typed** | The field text is useless on its own and is treated that way — it is dropped the moment the comparison is done, never logged, never stored, never sent anywhere. If Piplo's own last insertion is not found inside it, nothing happens at all |
+
+And there is still **no keyboard hook**, here or in
+[snippets](SNIPPETS.md#what-this-is-not). Piplo does not see a single keystroke
+you type.
+
+A password field is skipped before its value is touched —
+`IUIAutomationElement::CurrentIsPassword` is checked first, because that is the
+one field where being wrong is a disclosure rather than a bug.
+
+**This is a real change to the boundary and it is worth being honest about.** The
+old rule was "no accessibility read of another application", full stop, and it was
+easier to defend precisely because it had no exceptions. The exception buys the
+feature its whole reason to exist; the compensation is that the exception is
+stated as a mechanism rather than an intention, so it can be checked. There is one
+function — `platform::focused_text` — one caller, and no way to reach it from
+anywhere else in the tree.
+
+### What the read-back learns, and what it refuses to
+
+Only the word. Given:
+
+```
+Piplo typed   I am working on gentle age.
+the field now Some earlier notes.
+              I am working on ZentelAI.
+```
+
+it adds **`ZentelAI`** to the dictionary, with no variants, and stops.
+
+It does *not* write `gentle age → ZentelAI`. A single sighting of a mishearing is
+evidence that the word exists — it is not a rule about how the word will be
+misheard next time, and Whisper rarely mishears it the same way twice. A
+[term on its own is already a complete entry](#the-prompt-hint): it goes into
+Whisper's prompt, which is the mechanism that stops the mistake happening again at
+all. Guessing at a replacement rule would add a way to be wrong without adding a
+way to be right.
+
+Nothing about this path is fuzzy. Locating Piplo's insertion inside the field is
+exact word-run matching at each end (`learn::region`) — string equality, nothing
+else. No edit distance, no phonetics, no scoring, no model. Where the text cannot
+be located, or where the located span is too wide to be a name, the answer is
+silence.
+
+**One correction is enough here**, where the history-row path needs
+[three](#confidence-is-a-count). The evidence is better: the user did not merely
+retype the word, they left it standing in their own document.
 
 ### Extracting the mapping
 
@@ -316,6 +368,11 @@ number nobody can act on, so this stores the count.
 | 2 | **candidate** | Appears under [Suggested](#suggestions), with *Add* and *Never* |
 | 3 | **learned** | Added as a variant automatically, and the row says so |
 | — | **rejected** | *Never*, or deleting a learned variant. Never counted again |
+
+This table is the **history-row** path only. The
+[read-back](#reading-the-focused-field) does not use the ledger at all: it learns
+a bare term on the first correction and writes nothing here, so a word learned
+that way never becomes a variant and never appears as a suggestion.
 
 Three, because two is a coincidence and four is a user who has given up. The
 first occurrence is deliberately silent: a single correction is the most likely
@@ -515,11 +572,15 @@ no I/O — which is what makes them worth testing.
 | `candidate(typed, edited)` | `Option<Mapping>` — trim, then the filter. **Unit-tested** |
 | `looks_like_a_term(to, from, first_word)` | The four signals. **Unit-tested** |
 | `record(app, typed, edited)` | Append the event, recount, promote at three |
+| `region(typed, field)` | `Option<String>` — locate Piplo's insertion inside a document by exact word runs at each end. **Unit-tested** |
+| `learn_from_field(app, typed, field)` | `region` → `candidate` → save the term alone. No ledger write, no variant |
 | `suggestions(app)` | Pairs at count two that are not rejected |
 | `reject(app, mapping)` | Append the rejection, drop the variant if learned |
 
-`learn.rs` depends on `vocabulary.rs`. Nothing depends on `learn.rs` except its
-commands, and `session.rs` does not know it exists.
+`learn.rs` depends on `vocabulary.rs`. The only thing that depends on `learn.rs`
+is its commands and one call in `session::catch_up`, which runs on a detached
+blocking thread at the start of a recording — so a bug here still cannot cost
+anyone a dictation.
 
 ### Validation, in Rust
 
@@ -560,6 +621,7 @@ rather than patching it.
 | `accept_suggestion` | `Result<Vec<Entry>, String>` | *Add* on a suggestion |
 | `reject_suggestion` | `Result<Vec<Suggestion>, String>` | *Never* on a suggestion |
 | `record_correction` | `Result<Option<Learned>, String>` | The history row's save |
+| `undo_learned_term` | `Result<(), String>` | *Undo* on the widget's read-back note |
 
 `record_correction` returns what it learned, if anything, so the row can say so
 immediately. That is [Feature 5's toast](#feedback), in the only place it belongs.
@@ -827,13 +889,14 @@ cannot leave a truncated history.
 Each of these is in the source plan, and each is deliberately absent. The list is
 longer than the feature because the feature is the part that survived.
 
-- **No context awareness.** Not the active app, not the website, not the text
-  around the caret, not the file open in the editor. All of it needs accessibility
-  APIs or a browser extension, per platform and per application, and it means
-  Piplo reading documents nobody asked it to look at. This is the single largest
-  cut and it is not close.
+- **No context awareness.** Not the active app, not the website, not the file open
+  in the editor, and nothing read between dictations. The single read at the start
+  of a recording is [the one exception](#reading-the-focused-field), it is
+  anchored to Piplo's own last insertion, and it keeps nothing. This is still the
+  single largest cut.
 - **No keyboard hook.** Piplo does not watch what you type, here or
-  [anywhere](SNIPPETS.md#what-this-is-not).
+  [anywhere](SNIPPETS.md#what-this-is-not). The read-back does not change this: it
+  looks at a field's value once, never at a keystroke.
 - **No project scanning.** No `package.json`, no README, no source tree, no
   filenames. A dictation app that crawls your disk is a different product.
 - **No fuzzy or phonetic matching.** [Why](#why-not-fuzzy).

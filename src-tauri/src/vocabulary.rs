@@ -14,8 +14,14 @@ use tauri::{AppHandle, Manager};
 const FILE: &str = "vocabulary.json";
 
 /// Whisper's prompt window is small, a long list is more likely to be echoed
-/// than obeyed, and the terms just added are the ones about to be said.
+/// than obeyed, and the terms just added are the ones about to be said. Counts
+/// the terms only — [`CARRIER`] is fixed and does not compete with them.
 const MAX_PROMPT: usize = 180;
+
+/// What turns the terms into the *preceding text* Whisper's prompt is meant to
+/// be. Nothing about the wording is precious; that it is a sentence, and that the
+/// terms come last in it, is the entire effect.
+const CARRIER: &str = "The team uses ";
 
 /// Characters in a term or a variant.
 ///
@@ -237,47 +243,68 @@ pub fn terms_in(entries: &[Entry], text: &str) -> Vec<String> {
         .collect()
 }
 
-/// The capped comma list for Whisper — starred terms first, then most recently
-/// added — or `None` when there is nothing to hint at.
+/// A sentence ending in the user's terms, most important **last** — or `None`
+/// when there is nothing to hint at.
 ///
 /// Free — no extra call, no extra latency — and the only mechanism that can make
 /// Whisper produce the right token before there is any variant to replace. It is
 /// a hint and nothing more; [`apply`] is the mechanism.
 ///
-/// Order is the whole feature once the dictionary outgrows `MAX_PROMPT`: what
-/// falls off the end is never sent. Newest-first is the default because the term
-/// just added is the one about to be said; starring is how the user overrides
-/// that for a word they say every day.
+/// Two things about the shape are measured rather than assumed, because the
+/// obvious version of both was wrong (see `examples/prompt_ab.rs`, which replays
+/// one recording against every shape):
+///
+/// **It is a sentence, not a list.** Whisper's `prompt` is *preceding context* —
+/// text that could plausibly have come just before the audio — and a bare comma
+/// list is not that. Sending `"ZentelAI"` alone produced `GentilAI` on every one
+/// of nine trials; the same term inside a sentence produced `ZentelAI` on every
+/// one of nine.
+///
+/// **The order is reversed from what it was.** Recency inside the prompt is what
+/// decides: a term at the end lands, the same term at the front does not, and
+/// that holds with one term or with six. This used to emit starred and newest
+/// terms *first* and drop the tail at `MAX_PROMPT`, which put the words the user
+/// cared most about in the weakest position and spent the strongest one on
+/// whatever happened to be oldest. So the order is flipped and the cap now drops
+/// from the **front**: what falls off is the least important, and the last thing
+/// Whisper reads before the audio is the term most likely to be in it.
 pub fn prompt(entries: &[Entry]) -> Option<String> {
-    let mut hint = String::new();
+    // Least important first, so the most important is nearest the audio. Reversed
+    // for newest-last within a band, then a *stable* sort that puts starred last.
+    let mut ordered: Vec<&Entry> = entries.iter().filter(|entry| entry.live()).collect();
+    ordered.sort_by_key(|entry| entry.priority);
 
-    // Reversed first so newest-first is the order inside each band, then a
-    // *stable* sort by priority, which preserves it.
-    let mut ordered: Vec<&Entry> = entries.iter().rev().filter(|entry| entry.live()).collect();
-    ordered.sort_by_key(|entry| std::cmp::Reverse(entry.priority));
+    let mut terms: Vec<&str> = Vec::new();
+    let mut length = 0;
 
-    for entry in ordered {
+    // Built back to front, so the cap discards the least important rather than
+    // the nearest.
+    for entry in ordered.iter().rev() {
         let term = entry.term.trim();
 
-        let addition = if hint.is_empty() {
-            term.len()
-        } else {
-            term.len() + 2
-        };
+        if term.is_empty() {
+            continue;
+        }
+
+        let addition = term.chars().count() + if terms.is_empty() { 0 } else { 2 };
 
         // Whole terms only. Half a term is a word Whisper has never seen.
-        if hint.chars().count() + addition > MAX_PROMPT {
+        if length + addition > MAX_PROMPT {
             break;
         }
 
-        if !hint.is_empty() {
-            hint.push_str(", ");
-        }
-
-        hint.push_str(term);
+        length += addition;
+        terms.push(term);
     }
 
-    (!hint.is_empty()).then_some(hint)
+    if terms.is_empty() {
+        return None;
+    }
+
+    // Back into weakest-to-strongest for the sentence itself.
+    terms.reverse();
+
+    Some(format!("{}{}.", CARRIER, terms.join(", ")))
 }
 
 /// Whisper sometimes returns the prompt itself on a near-silent take.
@@ -456,6 +483,72 @@ pub fn add_variant(app: &AppHandle, term: &str, variant: &str) -> Result<Vec<Ent
     }
 
     commit(app, entries)
+}
+
+/// Add a term with **no variants at all**, for the word a read-back correction
+/// revealed. `Ok(None)` when the term is already here, which is what keeps a
+/// repeated correction from doing anything a second time.
+///
+/// The whole point of the entry is [`prompt`], which reads `term` and never looks
+/// at `variants` — so a term on its own is a complete, working dictionary entry.
+/// No variant is invented here, and none ever will be: what Whisper misheard is
+/// evidence that the word exists, not a rule about how it is misheard.
+pub fn add_term(app: &AppHandle, term: &str) -> Result<Option<Entry>, String> {
+    let term = term.trim();
+
+    if term.is_empty() || term.chars().count() > MAX_TERM {
+        return Err("not a term".into());
+    }
+
+    let mut entries = app.state::<Store>().get();
+
+    // A word the user already has — however they came by it — is theirs, and this
+    // path must not touch it.
+    if entries
+        .iter()
+        .any(|entry| normalize(&entry.term) == normalize(term))
+    {
+        return Ok(None);
+    }
+
+    let entry = Entry {
+        id: uuid::Uuid::new_v4().to_string(),
+        term: term.to_string(),
+        variants: Vec::new(),
+        source: "learned".to_string(),
+        enabled: true,
+        priority: 0,
+    };
+
+    entries.push(entry.clone());
+    commit(app, entries)?;
+
+    Ok(Some(entry))
+}
+
+/// *Undo* on the notification. Refuses anything Piplo did not create by itself.
+///
+/// Both guards matter. `source == "learned"` stops an undo from deleting a word
+/// the user typed in by hand, and the empty-variants check stops it deleting an
+/// entry that has since earned variants from the correction ledger — by then it is
+/// no longer only the thing this notification offered to undo.
+pub fn remove_term(app: &AppHandle, term: &str) -> Result<(), String> {
+    let mut entries = app.state::<Store>().get();
+    let before = entries.len();
+
+    entries.retain(|entry| {
+        normalize(&entry.term) != normalize(term)
+            || entry.source != "learned"
+            || !entry.variants.is_empty()
+    });
+
+    if entries.len() == before {
+        return Err("that word was not one Piplo added on its own".into());
+    }
+
+    commit(app, entries)?;
+
+    Ok(())
 }
 
 /// The other half of *Undo*: take the variant back out, leaving the term alone —
@@ -688,7 +781,7 @@ mod tests {
 
         assert_eq!(text, "mango DB and Prisma");
         assert_eq!(fired.len(), 1);
-        assert_eq!(prompt(&entries).as_deref(), Some("Prisma"));
+        assert_eq!(prompt(&entries).as_deref(), Some("The team uses Prisma."));
     }
 
     /// An entry written before `enabled` existed has no such key. Defaulting it
@@ -703,17 +796,35 @@ mod tests {
         assert_eq!(apply(&entries, "mango DB").0, "MongoDB");
     }
 
-    /// Starred terms lead, and newest-first survives inside each band — which is
-    /// what makes the order predictable once `MAX_PROMPT` starts truncating.
+    /// The hint is a sentence, because Whisper's prompt is preceding text and a
+    /// bare list is not. Measured, not assumed — see `prompt`.
     #[test]
-    fn starred_terms_lead_the_hint() {
+    fn the_hint_is_a_sentence() {
+        let entries = vec![entry("MongoDB", &[])];
+        let hint = prompt(&entries).expect("a hint");
+
+        assert_eq!(hint, "The team uses MongoDB.");
+        assert!(hint.ends_with('.'), "the terms must close a sentence");
+    }
+
+    /// Starred terms come **last**, and newest-last survives inside each band.
+    ///
+    /// The direction is the fix: recency inside the prompt is what decides
+    /// whether Whisper produces the term, so the important words go nearest the
+    /// audio. This asserted the exact opposite before, and the opposite did not
+    /// work.
+    #[test]
+    fn starred_terms_close_the_hint() {
         let entries = vec![entry("Alpha", &[]), starred("Beta"), entry("Gamma", &[])];
 
-        assert_eq!(prompt(&entries).as_deref(), Some("Beta, Gamma, Alpha"));
+        assert_eq!(
+            prompt(&entries).as_deref(),
+            Some("The team uses Alpha, Gamma, Beta.")
+        );
     }
 
     /// The reason starring exists: past the cap, order decides who is sent at
-    /// all.
+    /// all — and now also who gets the strongest position.
     #[test]
     fn a_starred_term_survives_the_cap() {
         let mut entries: Vec<Entry> = (0..40)
@@ -724,8 +835,11 @@ mod tests {
 
         let hint = prompt(&entries).expect("a hint");
 
-        assert!(hint.chars().count() <= MAX_PROMPT);
-        assert!(hint.starts_with("Kubernetes"), "got {hint:?}");
+        assert!(terms_of(&hint).chars().count() <= MAX_PROMPT);
+        assert!(
+            hint.ends_with("Kubernetes."),
+            "the starred term must be nearest the audio, got {hint:?}"
+        );
     }
 
     /// Whole terms only, still — the cap must not cut one in half.
@@ -736,13 +850,20 @@ mod tests {
             .collect();
 
         let hint = prompt(&entries).expect("a hint");
+        let terms = terms_of(&hint);
 
-        assert!(hint.chars().count() <= MAX_PROMPT);
+        assert!(terms.chars().count() <= MAX_PROMPT);
 
-        for term in hint.split(", ") {
+        for term in terms.split(", ") {
             assert!(term.starts_with("Terminology"), "half a term: {term:?}");
             assert_eq!(term.chars().count(), "Terminology00".len());
         }
+    }
+
+    /// The terms out of the carrier sentence, so the cap can be checked against
+    /// what it actually bounds.
+    fn terms_of(hint: &str) -> &str {
+        hint.trim_start_matches(CARRIER).trim_end_matches('.')
     }
 
     /// A blank term is corruption rather than a decision, and was skipped before
@@ -872,18 +993,25 @@ mod tests {
     }
 
     #[test]
-    fn the_prompt_is_newest_first_and_capped() {
+    fn the_prompt_is_newest_last_and_capped() {
         let entries = vec![entry("Piplo", &[]), entry("MongoDB", &[])];
 
-        assert_eq!(prompt(&entries), Some("MongoDB, Piplo".into()));
+        // Newest **last**: `MongoDB` was added after `Piplo`, so it is the term
+        // sitting closest to the audio.
+        assert_eq!(prompt(&entries), Some("The team uses Piplo, MongoDB.".into()));
         assert_eq!(prompt(&[]), None);
 
         // Whole terms only, and never past the cap.
         let long: Vec<Entry> = (0..40).map(|n| entry(&format!("Term{n:02}"), &[])).collect();
         let hint = prompt(&long).expect("terms to hint at");
+        let terms = terms_of(&hint);
 
-        assert!(hint.chars().count() <= MAX_PROMPT);
-        assert!(hint.split(", ").all(|term| term.len() == 6));
+        assert!(terms.chars().count() <= MAX_PROMPT);
+        assert!(terms.split(", ").all(|term| term.len() == 6));
+
+        // The cap drops the oldest, never the newest — the whole point of the
+        // order is that the strongest position survives truncation.
+        assert!(hint.ends_with("Term39."), "got {hint:?}");
     }
 
     #[test]

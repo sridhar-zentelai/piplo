@@ -47,11 +47,19 @@ Not "later" — do not write code for these at all:
 - Prompt templates, rewrite styles, per-app tone
 - Keyboard-triggered text expansion — [snippets](docs/SNIPPETS.md) are spoken
   only, and never watch what you type
-- **Any keyboard hook or accessibility read of another application** — no
-  watching what you type, no reading the text around the caret, no per-app or
-  per-website context. This is the boundary
-  [vocabulary](docs/VOCABULARY.md#why-not-watch-the-users-own-app) is built
-  against, not a feature waiting for time
+- **Any keyboard hook, and any *continuous* accessibility read of another
+  application** — nothing watches what you type, nothing polls, nothing reads the
+  text around the caret between dictations, and there is no per-app or
+  per-website context
+
+  The one exception, and it is the whole of it: **a single read of the focused
+  field at the moment a recording starts**, compared only against the text Piplo
+  itself last typed, to notice that the user fixed a word by hand. One call, no
+  timer, nothing retained. See
+  [vocabulary](docs/VOCABULARY.md#reading-the-focused-field) for why that read is
+  the narrowest thing that could deliver the feature, and `platform::focused_text`
+  for the only code allowed to make it. Widening it — a second call site, a poll,
+  a read that is not anchored to Piplo's own insertion — is out of scope
 - Scanning the user's projects or filesystem for terminology
 - Voice commands
 - Clipboard history
@@ -164,11 +172,24 @@ audio.rs             (release)
       SendInput Unicode        line per dictation
 ```
 
-`learn.rs` sits outside this path entirely. It runs when a user edits a history
-row in the home window — never during a dictation.
+`learn.rs` sits outside this path entirely, and is reached two ways. A user edits
+a history row in the home window; or a recording starts, and `session::start`
+reads the focused field once to see whether the last dictation was fixed by hand.
+The second runs on a detached blocking thread — a dictation never waits on it, and
+a failed read is silence.
 
-The frontend hears exactly two events: `status` (a tagged state) and `level` (a
-float, ~30 Hz, kept separate so the waveform does not re-render the tree).
+The two paths learn different things on purpose. The history row counts a
+`from → to` pair and, at three, saves a replacement rule. The read-back saves the
+**corrected word alone** and writes nothing to the ledger: what Whisper misheard
+is evidence the word exists, not a rule about how it will be misheard next time.
+
+The frontend hears three events: `status` (a tagged state), `level` (a float,
+~30 Hz, kept separate so the waveform does not re-render the tree), and `learned`
+(a word, at most once per recording).
+
+`learned` is an event rather than a fifth `Status` because it arrives *during* a
+recording and the pill has to go on saying Recording underneath it. A status that
+replaced another status would hide the thing the user is currently doing.
 
 ```rust
 enum Status { Idle, Recording, Transcribing, Error { message: String } }
@@ -221,6 +242,7 @@ Everything platform-specific lives behind four seams, and **only** these four.
 | `insert.rs` — typing | `SendInput` (UTF-16 units) | `CGEvent` + `keyboardSetUnicodeString` |
 | `widget.rs::work_area` — where the chip sits | `GetMonitorInfoW().rcWork` | `NSScreen.visibleFrame` (flipped to top-left origin) |
 | `menu.rs::cursor_pos` — right-click origin | `GetCursorPos` | `NSEvent.mouseLocation` (flipped) |
+| `platform.rs::focused_text` — the one read-back | UI Automation: `IUIAutomation::GetFocusedElement`, then `ValuePattern` or `TextPattern` | `AXUIElementCreateSystemWide` + `kAXFocusedUIElementAttribute` — **not implemented yet**, returns `None` |
 
 Rules for the seams:
 
@@ -293,6 +315,7 @@ src/
     FloatingWidget.tsx     shape + morph
     PillContents.tsx       what's inside the pill per status
     Waveform.tsx           bars driven by `level`
+    LearnedNote.tsx        "Added X to dictionary", under the pill, with Undo
     MicIcon.tsx
     WidgetMenu.tsx         the right-click menu
     Sidebar.tsx            home window nav

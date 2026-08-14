@@ -19,6 +19,7 @@ The whole port is **four seams**. Everything else already compiles anywhere.
 | `platform::no_activate` — the non-activating panel | **Done**, needs a real Mac to confirm. Written inline with `objc2` rather than via `tauri-nspanel`, which is not on crates.io. |
 | `macOSPrivateApi` for real transparency | **Done** — caught by the smoke test's stderr |
 | Per-platform shortcut default and policy | **Done.** `Cmd+Shift+Space` on macOS, and `reject_reserved` no longer refuses Cmd — which would have made Piplo refuse its own default and bind nothing. |
+| `platform::focused_text` — the vocabulary read-back | **Not started.** Stubbed to `None`, so the feature is simply off on macOS — see below |
 | Accessibility row in Settings | Not started |
 | `Cmd`/`Option` modifier symbols in the recorder | Not started (cosmetic) |
 | Template tray icon | Not started |
@@ -211,6 +212,39 @@ Two pieces:
   works when Accessibility is granted and degrades to click-to-dismiss when it
   is not. That is acceptable; the menu is never the thing that loses a
   dictation.
+
+### 5. `platform.rs::focused_text` — the vocabulary read-back
+
+The newest seam, and the only one with no macOS half yet.
+
+Windows uses UI Automation: `IUIAutomation::GetFocusedElement`, then
+`ValuePattern` or `TextPattern`. The macOS equivalent is:
+
+```
+AXUIElementCreateSystemWide()
+AXUIElementCopyAttributeValue(system, kAXFocusedUIElementAttribute) → element
+AXUIElementCopyAttributeValue(element, kAXValueAttribute)           → CFString
+```
+
+gated on `AXIsProcessTrusted()`, and skipping the element when its
+`kAXSubroleAttribute` is `kAXSecureTextFieldSubrole` — the counterpart of the
+`CurrentIsPassword` check on Windows, and not optional.
+
+Two things make this more than a transcription of the Windows version:
+
+- **It needs a dependency the tree does not carry.** The AX API lives in
+  `objc2-application-services` (`HIServices`), which — unlike the four `objc2`
+  crates already pinned — is not inside Tauri's own dependency graph. It is a
+  genuinely new dependency, so it needs the one-sentence reason the
+  [rules](../CLAUDE.md#tech-stack) ask for, and it should be written on a machine
+  that can compile it.
+- **It is the same Accessibility permission `insert.rs` already needs.** No new
+  prompt, no second concept for the user — if typing works, this works.
+
+Until then the stub returns `None` and the read-back half of vocabulary learning
+is off on macOS. Nothing degrades: correcting a history row in the home window
+still teaches Piplo, exactly as it did before the read-back existed. That is the
+right shape for a missing seam — a feature that is absent, not one that is broken.
 
 ---
 

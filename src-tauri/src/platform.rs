@@ -379,6 +379,93 @@ pub fn foreground_is_ours() -> bool {
     false
 }
 
+/// The text of the focused field, read **once**.
+///
+/// This is the one place Piplo looks at another application's contents, and the
+/// boundary is the call site rather than this function: `session::start` invokes
+/// it at the moment a recording begins and nowhere else. There is no hook, no
+/// timer, and nothing that outlives the call — see
+/// [VOCABULARY.md](../../docs/VOCABULARY.md#reading-the-focused-field).
+///
+/// `None` on every failure, and failure is the common case: a field with no text
+/// pattern, a control that refuses the request, an application with no automation
+/// support at all. The caller learns nothing and the user is never told, because
+/// there is nothing they could do about it.
+#[cfg(windows)]
+pub fn focused_text() -> Option<String> {
+    use windows::Win32::System::Com::{
+        CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_INPROC_SERVER,
+        COINIT_MULTITHREADED,
+    };
+    use windows::Win32::UI::Accessibility::{
+        CUIAutomation, IUIAutomation, IUIAutomationElement, IUIAutomationTextPattern,
+        IUIAutomationValuePattern, UIA_TextPatternId, UIA_ValuePatternId,
+    };
+
+    unsafe {
+        // MTA: this runs on a blocking worker, never on the UI thread, so there is
+        // no message pump for an apartment-threaded client to rely on.
+        let started = CoInitializeEx(None, COINIT_MULTITHREADED).is_ok();
+
+        let text = (|| {
+            let automation: IUIAutomation =
+                CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER).ok()?;
+
+            let focused: IUIAutomationElement = automation.GetFocusedElement().ok()?;
+
+            // Before anything is read. A password box is the one field where
+            // getting this wrong is not a bug but a disclosure.
+            if focused.CurrentIsPassword().is_ok_and(|is| is.as_bool()) {
+                return None;
+            }
+
+            // `ValuePattern` is what a classic edit control exposes — Notepad and
+            // most Win32 fields. `TextPattern` covers RichEdit, WinUI, Electron
+            // and browsers. Neither is a fallback for a *failed* read: the first
+            // one that exists is the one that answers.
+            if let Ok(value) = focused.GetCurrentPatternAs::<IUIAutomationValuePattern>(
+                UIA_ValuePatternId,
+            ) {
+                if let Ok(text) = value.CurrentValue() {
+                    return non_empty(text.to_string());
+                }
+            }
+
+            let document = focused
+                .GetCurrentPatternAs::<IUIAutomationTextPattern>(UIA_TextPatternId)
+                .ok()?;
+
+            // -1 is "no limit" in the UI Automation contract. The word cap that
+            // actually protects us is in `learn::region`, which is where a huge
+            // document has to be refused anyway.
+            non_empty(document.DocumentRange().ok()?.GetText(-1).ok()?.to_string())
+        })();
+
+        // Only if this call is the one that initialised the apartment. Balancing
+        // someone else's CoInitializeEx would tear COM down under them.
+        if started {
+            CoUninitialize();
+        }
+
+        text
+    }
+}
+
+#[cfg(windows)]
+fn non_empty(text: String) -> Option<String> {
+    (!text.trim().is_empty()).then_some(text)
+}
+
+/// Not implemented on macOS yet. The equivalent is `AXUIElementCreateSystemWide`
+/// with `kAXFocusedUIElementAttribute`, gated on `AXIsProcessTrusted` — it needs a
+/// dependency the tree does not carry. Reporting `None` means the read-back half
+/// of vocabulary learning is simply off there; correcting a history row in the
+/// home window still teaches Piplo. See [MACOS.md](../../docs/MACOS.md).
+#[cfg(not(windows))]
+pub fn focused_text() -> Option<String> {
+    None
+}
+
 /// Either mouse button physically down.
 #[cfg(windows)]
 pub fn mouse_down() -> bool {

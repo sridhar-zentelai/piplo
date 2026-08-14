@@ -109,9 +109,13 @@ export function clearApiKey(): Promise<ApiKeyStatus> {
   return invoke("clear_api_key");
 }
 
-/** Widen the widget window for the pill, or narrow it back for the chip. */
-export function widgetSetActive(active: boolean): Promise<void> {
-  return invoke("widget_set_active", { active });
+/** The chip, the pill, or the pill with the learned-word note under it. Mirrors
+ *  `widget::Shape`. */
+export type WidgetShape = "idle" | "pill" | "note";
+
+/** Resize the widget window to fit what is about to render in it. */
+export function widgetSetShape(shape: WidgetShape): Promise<void> {
+  return invoke("widget_set_shape", { shape });
 }
 
 /** Remember where the window is, so the moves below can be offsets from it. */
@@ -257,6 +261,17 @@ export function acceptSuggestion(mapping: Mapping): Promise<Term[]> {
  */
 export function rejectSuggestion(mapping: Mapping): Promise<Suggestion[]> {
   return invoke("reject_suggestion", { mapping });
+}
+
+/**
+ * *Undo* on the widget's "Added X to dictionary" note.
+ *
+ * Removes the entry outright — the read-back path only ever creates a bare term,
+ * so there is nothing else to unpick. Rejected by the backend for any word Piplo
+ * did not add on its own.
+ */
+export function undoLearnedTerm(term: string): Promise<void> {
+  return invoke("undo_learned_term", { term });
 }
 
 export function openHome(): Promise<void> {

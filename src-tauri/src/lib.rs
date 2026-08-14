@@ -36,6 +36,8 @@ pub fn run() {
         .manage(session::Active::default())
         .manage(session::Generation::default())
         .manage(session::LastFix::default())
+        .manage(session::LastTyped::default())
+        .manage(session::Typing::default())
         .manage(shortcut::KeyDown::default())
         .manage(menu::MenuOpen::default())
         .manage(widget::Drag::default())
@@ -53,7 +55,7 @@ pub fn run() {
                 .build(),
         )
         .invoke_handler(tauri::generate_handler![
-            widget::widget_set_active,
+            widget::widget_set_shape,
             widget::widget_drag_start,
             widget::widget_drag_to,
             widget::widget_drag_end,
@@ -79,6 +81,7 @@ pub fn run() {
             learn::list_suggestions,
             learn::accept_suggestion,
             learn::reject_suggestion,
+            learn::undo_learned_term,
             tray::open_home,
             menu::show_widget_menu,
             menu::hide_widget_menu,

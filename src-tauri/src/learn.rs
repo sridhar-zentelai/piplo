@@ -123,6 +123,79 @@ pub fn candidate(typed: &str, edited: &str) -> Option<Mapping> {
     Some(Mapping { from, to })
 }
 
+/// Fewer leading words than this cannot anchor anything: "I" occurs in every
+/// document, and an anchor that matches anywhere locates nothing.
+const MIN_ANCHOR: usize = 2;
+
+/// Past this, the field is a document rather than a sentence someone just fixed.
+/// A cap rather than a scan, because the cost of the search is the only thing
+/// that grows — the odds of a correct anchor do not.
+const MAX_FIELD_WORDS: usize = 5000;
+
+/// The slice of `field` that Piplo's own `typed` text became, or `None`.
+///
+/// The problem this exists for: the focused field holds the whole document, and
+/// `candidate` compares two utterances. Handing it "Some notes. I am working on
+/// ZentelAI." against "I am working on gentle age." makes both spans far too wide
+/// and it refuses them — correctly, but uselessly.
+///
+/// So the insertion is located first, by **exact word runs at each end**. The
+/// longest leading run of `typed` that appears in `field` fixes the start; the
+/// longest trailing run that appears after it fixes the end. That is ordinary
+/// string equality on whitespace-split words — there is no distance, no scoring,
+/// no phonetics and no model anywhere in it, and there must never be.
+///
+/// Where the anchors cannot both be placed, the answer is `None` and nothing is
+/// learned. When only the head anchors — the common case, because the edit so
+/// often runs to the end of what was typed — the region extends to the end of the
+/// field, and any document text that follows makes the span too wide for
+/// `candidate` to accept. Failing safe is the same rule twice.
+pub fn region(typed: &str, field: &str) -> Option<String> {
+    let typed: Vec<&str> = typed.split_whitespace().collect();
+    let field: Vec<&str> = field.split_whitespace().collect();
+
+    if typed.len() < MIN_ANCHOR || field.is_empty() || field.len() > MAX_FIELD_WORDS {
+        return None;
+    }
+
+    // Longest first, so the run found is the most specific one available.
+    let head = (MIN_ANCHOR..=typed.len())
+        .rev()
+        .find_map(|len| find(&field, &typed[..len], 0).map(|at| (at, len)));
+
+    let (start, head) = head?;
+
+    // Everything still there: the user did not touch it, and there is no
+    // correction to read.
+    if head == typed.len() {
+        return None;
+    }
+
+    let after = start + head;
+
+    // May be zero — the edit reached the end of the insertion, which is the
+    // ordinary case for a name at the end of a sentence.
+    let tail = (1..=typed.len() - head)
+        .rev()
+        .find_map(|len| find(&field, &typed[typed.len() - len..], after).map(|at| (at, len)));
+
+    let end = match tail {
+        Some((at, len)) => at + len,
+        None => field.len(),
+    };
+
+    Some(field[start..end].join(" "))
+}
+
+/// The first index at or after `from` where `needle` sits in `hay`, word for word.
+fn find(hay: &[&str], needle: &[&str], from: usize) -> Option<usize> {
+    if needle.is_empty() || needle.len() > hay.len() {
+        return None;
+    }
+
+    (from..=hay.len() - needle.len()).find(|&at| hay[at..at + needle.len()] == *needle)
+}
+
 /// Whether the replacement looks like a name rather than a content edit.
 ///
 /// The load-bearing rule. Capitalisation is what separates a proper noun from a
@@ -286,6 +359,41 @@ pub fn record(app: &AppHandle, typed: &str, edited: &str) -> Outcome {
         Err(err) => {
             eprintln!("piplo: could not save the learned variant: {err}");
             Outcome::Nothing
+        }
+    }
+}
+
+/// The read-back path: the user fixed Piplo's text **in their own application**,
+/// and the word they replaced it with is one Piplo should know.
+///
+/// Deliberately not [`record`]. That one counts a `from → to` pair in the ledger
+/// and, at three, saves a replacement rule. This one does neither: it takes
+/// `mapping.to`, saves that word and nothing else, and never writes to
+/// `corrections.jsonl`. What Whisper misheard is evidence the word exists — it is
+/// not a rule about how it will be misheard next time, and inventing one from a
+/// single sighting is exactly the guessing this feature refuses to do.
+///
+/// One correction is enough here, where three are needed for a ledger pair,
+/// because the evidence is better: the user did not merely retype the word, they
+/// left it standing in their own document.
+///
+/// Returns the term when one was added, and `None` every other time — no match, no
+/// anchor, not a term, or a word already in the dictionary.
+pub fn learn_from_field(app: &AppHandle, typed: &str, field: &str) -> Option<String> {
+    let region = region(typed, field)?;
+    let mapping = candidate(typed, &region)?;
+
+    match vocabulary::add_term(app, &mapping.to) {
+        Ok(Some(entry)) => {
+            println!("piplo: learned {} from a correction in your app", entry.term);
+            Some(entry.term)
+        }
+        // Already known. Silent on purpose: a notification for a word that was
+        // there all along is a lie about what just happened.
+        Ok(None) => None,
+        Err(err) => {
+            eprintln!("piplo: could not save the learned term: {err}");
+            None
         }
     }
 }
@@ -458,6 +566,13 @@ pub fn reject_suggestion(app: AppHandle, mapping: Mapping) -> Result<Vec<Suggest
     Ok(suggestions(&app))
 }
 
+/// *Undo* on the widget notification. Only ever removes a term Piplo added on its
+/// own — [`vocabulary::remove_term`] is where that is enforced.
+#[tauri::command]
+pub fn undo_learned_term(app: AppHandle, term: String) -> Result<(), String> {
+    vocabulary::remove_term(&app, &term)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -545,6 +660,99 @@ mod tests {
         assert_eq!(candidate("prism is the orm", "Prisma is the orm"), None);
         // The same word later in the sentence is.
         assert!(candidate("the orm is prism", "the orm is Prisma").is_some());
+    }
+
+    /// The whole read-back feature in one line: the field holds a document, and
+    /// the insertion has to be found inside it before anything can be compared.
+    #[test]
+    fn finds_the_insertion_inside_a_larger_document() {
+        assert_eq!(
+            region(
+                "I am working on gentle age.",
+                "Some earlier notes.\nI am working on ZentelAI."
+            )
+            .as_deref(),
+            Some("I am working on ZentelAI.")
+        );
+    }
+
+    #[test]
+    fn the_located_region_is_what_candidate_can_read() {
+        let typed = "I am working on gentle age.";
+        let field = "Some earlier notes.\nI am working on ZentelAI.";
+        let region = region(typed, field).expect("the insertion is in there");
+
+        assert_eq!(
+            candidate(typed, &region),
+            Some(Mapping {
+                from: "gentle age".into(),
+                to: "ZentelAI".into()
+            })
+        );
+    }
+
+    #[test]
+    fn anchors_at_both_ends_when_the_edit_is_in_the_middle() {
+        assert_eq!(
+            region(
+                "we deploy on verbal every Friday",
+                "Notes.\nwe deploy on Vercel every Friday\nand then go home."
+            )
+            .as_deref(),
+            Some("we deploy on Vercel every Friday")
+        );
+    }
+
+    #[test]
+    fn an_untouched_insertion_is_not_a_correction() {
+        assert_eq!(
+            region("I am working on ZentelAI.", "Notes.\nI am working on ZentelAI."),
+            None
+        );
+    }
+
+    #[test]
+    fn refuses_what_it_cannot_anchor() {
+        // Piplo's text is not in the field at all — a different window, or the
+        // user deleted the lot.
+        assert_eq!(region("I am working on gentle age.", "unrelated text here"), None);
+        // Too short to anchor: one word matches in far too many places.
+        assert_eq!(region("ZentelAI", "I am working on ZentelAI."), None);
+        assert_eq!(region("anything at all", ""), None);
+    }
+
+    /// A head-only anchor runs to the end of the field, so document text after the
+    /// insertion widens the span — and `candidate` is what refuses it.
+    #[test]
+    fn a_runaway_region_is_refused_downstream() {
+        let typed = "I am working on gentle age.";
+        let field = "I am working on ZentelAI. Then I went to lunch and thought about it.";
+        let region = region(typed, field).expect("the head anchors");
+
+        assert_eq!(candidate(typed, &region), None);
+    }
+
+    /// The read-back path learns the word and nothing else. `from` is read to
+    /// decide there *was* a correction, then dropped on the floor.
+    #[test]
+    fn the_read_back_path_keeps_only_the_corrected_word() {
+        let typed = "I am working on gentle age.";
+        let field = "Some earlier notes.\nI am working on ZentelAI.";
+        let mapping = candidate(typed, &region(typed, field).expect("found")).expect("a term");
+
+        assert_eq!(mapping.to, "ZentelAI");
+        // What `learn_from_field` passes to `vocabulary::add_term` — never the
+        // pair, so no `GentilAI → ZentelAI` rule can come out of this path.
+        assert_eq!(mapping.from, "gentle age");
+    }
+
+    #[test]
+    fn an_ordinary_edit_in_a_document_still_teaches_nothing() {
+        let typed = "we shipped yesterday and told the team";
+        let field = "Standup notes.\nwe shipped last night and told the team";
+        let region = region(typed, field).expect("the head anchors");
+
+        assert_eq!(candidate(typed, &region), None);
     }
 
     fn tallied(events: &[(&str, &str, &str)]) -> HashMap<(String, String), Tally> {
